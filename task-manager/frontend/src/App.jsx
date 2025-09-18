@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Calendar from 'react-calendar';
-import { Plus, Edit2, Trash2, Calendar as CalendarIcon, Layout } from 'lucide-react';
+import { Plus, Edit2, Trash2, Calendar as CalendarIcon, Layout, X, DollarSign } from 'lucide-react';
 import 'react-calendar/dist/Calendar.css';
 
 const API_URL = 'http://localhost:3001/api';
@@ -17,15 +17,23 @@ function App() {
     const [tasks, setTasks] = useState([]);
     const [view, setView] = useState('kanban');
     const [showModal, setShowModal] = useState(false);
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [editingTask, setEditingTask] = useState(null);
+    const [selectedTaskForPayment, setSelectedTaskForPayment] = useState(null);
+    const [payments, setPayments] = useState([]);
     const [formData, setFormData] = useState({
         title: '',
         client_name: '',
         price: 0,
-        advance_payment: 0,
         status: 'cotizacion',
         description: '',
         due_date: ''
+    });
+    const [tempPayments, setTempPayments] = useState([]);
+    const [newPayment, setNewPayment] = useState({
+        amount: '',
+        payment_date: new Date().toISOString().split('T')[0],
+        notes: ''
     });
 
     useEffect(() => {
@@ -41,13 +49,38 @@ function App() {
         }
     };
 
+    const fetchPayments = async (taskId) => {
+        try {
+            const response = await axios.get(`${API_URL}/tasks/${taskId}/payments`);
+            setPayments(response.data);
+        } catch (error) {
+            console.error('Error fetching payments:', error);
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
             if (editingTask) {
+                // Actualizar tarea existente
                 await axios.put(`${API_URL}/tasks/${editingTask.id}`, formData);
+
+                // Agregar nuevos abonos si hay
+                for (const payment of tempPayments) {
+                    await axios.post(`${API_URL}/tasks/${editingTask.id}/payments`, payment);
+                }
             } else {
-                await axios.post(`${API_URL}/tasks`, formData);
+                // Crear nueva tarea con abono inicial si existe
+                const taskData = { ...formData };
+                if (tempPayments.length > 0) {
+                    taskData.initial_payment = tempPayments[0];
+                }
+                const response = await axios.post(`${API_URL}/tasks`, taskData);
+
+                // Agregar abonos adicionales si hay más de uno
+                for (let i = 1; i < tempPayments.length; i++) {
+                    await axios.post(`${API_URL}/tasks/${response.data.id}/payments`, tempPayments[i]);
+                }
             }
             fetchTasks();
             closeModal();
@@ -67,24 +100,32 @@ function App() {
         }
     };
 
-    const openModal = (task = null) => {
+    const openModal = async (task = null) => {
         if (task) {
             setEditingTask(task);
             setFormData({
-                ...task,
+                title: task.title,
+                client_name: task.client_name,
+                price: task.price,
+                status: task.status,
+                description: task.description || '',
                 due_date: task.due_date ? task.due_date.split('T')[0] : ''
             });
+            // Cargar abonos existentes
+            await fetchPayments(task.id);
+            setTempPayments([]);
         } else {
             setEditingTask(null);
             setFormData({
                 title: '',
                 client_name: '',
                 price: 0,
-                advance_payment: 0,
                 status: 'cotizacion',
                 description: '',
                 due_date: ''
             });
+            setPayments([]);
+            setTempPayments([]);
         }
         setShowModal(true);
     };
@@ -92,6 +133,61 @@ function App() {
     const closeModal = () => {
         setShowModal(false);
         setEditingTask(null);
+        setTempPayments([]);
+        setPayments([]);
+    };
+
+    const addTempPayment = () => {
+        if (newPayment.amount && newPayment.amount > 0) {
+            setTempPayments([...tempPayments, { ...newPayment, amount: parseFloat(newPayment.amount) }]);
+            setNewPayment({
+                amount: '',
+                payment_date: new Date().toISOString().split('T')[0],
+                notes: ''
+            });
+        }
+    };
+
+    const removeTempPayment = (index) => {
+        setTempPayments(tempPayments.filter((_, i) => i !== index));
+    };
+
+    const deleteExistingPayment = async (paymentId) => {
+        if (window.confirm('¿Estás seguro de eliminar este abono?')) {
+            try {
+                await axios.delete(`${API_URL}/payments/${paymentId}`);
+                await fetchPayments(editingTask.id);
+                fetchTasks();
+            } catch (error) {
+                console.error('Error deleting payment:', error);
+            }
+        }
+    };
+
+    const openPaymentModal = async (task) => {
+        setSelectedTaskForPayment(task);
+        await fetchPayments(task.id);
+        setShowPaymentModal(true);
+    };
+
+    const addPaymentToExistingTask = async () => {
+        if (newPayment.amount && newPayment.amount > 0) {
+            try {
+                await axios.post(`${API_URL}/tasks/${selectedTaskForPayment.id}/payments`, {
+                    ...newPayment,
+                    amount: parseFloat(newPayment.amount)
+                });
+                await fetchPayments(selectedTaskForPayment.id);
+                fetchTasks();
+                setNewPayment({
+                    amount: '',
+                    payment_date: new Date().toISOString().split('T')[0],
+                    notes: ''
+                });
+            } catch (error) {
+                console.error('Error adding payment:', error);
+            }
+        }
     };
 
     const handleDragStart = (e, task) => {
@@ -105,7 +201,7 @@ function App() {
     const handleDrop = async (e, newStatus) => {
         e.preventDefault();
         const taskId = e.dataTransfer.getData('taskId');
-        
+
         try {
             await axios.patch(`${API_URL}/tasks/${taskId}/status`, { status: newStatus });
             fetchTasks();
@@ -118,8 +214,14 @@ function App() {
         return tasks.filter(task => task.status === status);
     };
 
+    const calculateRemaining = (task) => {
+        const total = parseFloat(task.price || 0);
+        const paid = parseFloat(task.total_advance_payment || 0);
+        return total - paid;
+    };
+
     const TaskCard = ({ task }) => (
-        <div 
+        <div
             className="task-card"
             draggable
             onDragStart={(e) => handleDragStart(e, task)}
@@ -128,14 +230,32 @@ function App() {
             <div className="task-client">Cliente: {task.client_name}</div>
             <div className="task-price">
                 <span>Total: ${parseFloat(task.price).toFixed(2)}</span>
-                <span>Abono: ${parseFloat(task.advance_payment).toFixed(2)}</span>
             </div>
+            <div className="task-payments-info">
+                <span className="payment-badge">
+                    Abonado: ${parseFloat(task.total_advance_payment || 0).toFixed(2)}
+                </span>
+                <span className={`payment-badge ${calculateRemaining(task) <= 0 ? 'paid' : 'pending'}`}>
+                    Saldo: ${calculateRemaining(task).toFixed(2)}
+                </span>
+            </div>
+            {task.payment_count > 0 && (
+                <div className="payment-count">
+                    {task.payment_count} abono{task.payment_count > 1 ? 's' : ''}
+                </div>
+            )}
             {task.due_date && (
                 <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '5px' }}>
                     Fecha: {new Date(task.due_date).toLocaleDateString()}
                 </div>
             )}
             <div className="task-actions">
+                <button className="payment-btn" onClick={(e) => {
+                    e.stopPropagation();
+                    openPaymentModal(task);
+                }}>
+                    <DollarSign size={14} />
+                </button>
                 <button className="edit-btn" onClick={() => openModal(task)}>
                     <Edit2 size={14} />
                 </button>
@@ -149,7 +269,7 @@ function App() {
     const KanbanView = () => (
         <div className="kanban-board">
             {Object.keys(statusLabels).map(status => (
-                <div 
+                <div
                     key={status}
                     className="kanban-column"
                     onDragOver={handleDragOver}
@@ -193,10 +313,6 @@ function App() {
                         value={new Date()}
                     />
                 </div>
-                <div style={{ marginTop: '20px' }}>
-                    <h3>Tareas del día seleccionado:</h3>
-                    {/* Aquí podrías mostrar las tareas del día seleccionado */}
-                </div>
             </div>
         );
     };
@@ -207,14 +323,14 @@ function App() {
                 <h1>Gestor de Tareas</h1>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                     <div className="view-toggles">
-                        <button 
+                        <button
                             className={view === 'kanban' ? 'active' : ''}
                             onClick={() => setView('kanban')}
                         >
                             <Layout size={16} style={{ display: 'inline', marginRight: '5px' }} />
                             Tablero
                         </button>
-                        <button 
+                        <button
                             className={view === 'calendar' ? 'active' : ''}
                             onClick={() => setView('calendar')}
                         >
@@ -231,66 +347,144 @@ function App() {
 
             {view === 'kanban' ? <KanbanView /> : <CalendarView />}
 
+            {/* Modal de Tarea */}
             {showModal && (
                 <div className="modal-overlay">
-                    <div className="modal">
+                    <div className="modal modal-large">
                         <h2>{editingTask ? 'Editar Tarea' : 'Nueva Tarea'}</h2>
                         <form onSubmit={handleSubmit}>
-                            <div className="form-group">
-                                <label>Título *</label>
-                                <input
-                                    type="text"
-                                    value={formData.title}
-                                    onChange={(e) => setFormData({...formData, title: e.target.value})}
-                                    required
-                                />
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Título *</label>
+                                    <input
+                                        type="text"
+                                        value={formData.title}
+                                        onChange={(e) => setFormData({...formData, title: e.target.value})}
+                                        required
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Nombre del Cliente *</label>
+                                    <input
+                                        type="text"
+                                        value={formData.client_name}
+                                        onChange={(e) => setFormData({...formData, client_name: e.target.value})}
+                                        required
+                                    />
+                                </div>
                             </div>
-                            <div className="form-group">
-                                <label>Nombre del Cliente *</label>
-                                <input
-                                    type="text"
-                                    value={formData.client_name}
-                                    onChange={(e) => setFormData({...formData, client_name: e.target.value})}
-                                    required
-                                />
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Precio Total</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={formData.price}
+                                        onChange={(e) => setFormData({...formData, price: parseFloat(e.target.value)})}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Estado</label>
+                                    <select
+                                        value={formData.status}
+                                        onChange={(e) => setFormData({...formData, status: e.target.value})}
+                                    >
+                                        {Object.entries(statusLabels).map(([value, label]) => (
+                                            <option key={value} value={value}>{label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label>Fecha de Entrega</label>
+                                    <input
+                                        type="date"
+                                        value={formData.due_date}
+                                        onChange={(e) => setFormData({...formData, due_date: e.target.value})}
+                                    />
+                                </div>
                             </div>
-                            <div className="form-group">
-                                <label>Precio Total</label>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    value={formData.price}
-                                    onChange={(e) => setFormData({...formData, price: parseFloat(e.target.value)})}
-                                />
+
+                            {/* Sección de Abonos */}
+                            <div className="payments-section">
+                                <h3>Registro de Abonos</h3>
+
+                                {/* Abonos existentes (solo en modo edición) */}
+                                {editingTask && payments.length > 0 && (
+                                    <div className="existing-payments">
+                                        <h4>Abonos Registrados</h4>
+                                        {payments.map((payment, index) => (
+                                            <div key={payment.id} className="payment-item">
+                                                <span>${parseFloat(payment.amount).toFixed(2)}</span>
+                                                <span>{new Date(payment.payment_date).toLocaleDateString()}</span>
+                                                <span>{payment.notes || 'Sin notas'}</span>
+                                                <button
+                                                    type="button"
+                                                    className="remove-btn"
+                                                    onClick={() => deleteExistingPayment(payment.id)}
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        <div className="payment-summary">
+                                            Total Abonado: ${payments.reduce((sum, p) => sum + parseFloat(p.amount), 0).toFixed(2)}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Formulario para nuevo abono */}
+                                <div className="new-payment-form">
+                                    <h4>Agregar Nuevo Abono</h4>
+                                    <div className="payment-input-group">
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            placeholder="Monto"
+                                            value={newPayment.amount}
+                                            onChange={(e) => setNewPayment({...newPayment, amount: e.target.value})}
+                                        />
+                                        <input
+                                            type="date"
+                                            value={newPayment.payment_date}
+                                            onChange={(e) => setNewPayment({...newPayment, payment_date: e.target.value})}
+                                        />
+                                        <input
+                                            type="text"
+                                            placeholder="Notas (opcional)"
+                                            value={newPayment.notes}
+                                            onChange={(e) => setNewPayment({...newPayment, notes: e.target.value})}
+                                        />
+                                        <button type="button" className="add-payment-btn" onClick={addTempPayment}>
+                                            <Plus size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Abonos temporales (pendientes de guardar) */}
+                                {tempPayments.length > 0 && (
+                                    <div className="temp-payments">
+                                        <h4>Abonos por Agregar</h4>
+                                        {tempPayments.map((payment, index) => (
+                                            <div key={index} className="payment-item temp">
+                                                <span>${parseFloat(payment.amount).toFixed(2)}</span>
+                                                <span>{new Date(payment.payment_date).toLocaleDateString()}</span>
+                                                <span>{payment.notes || 'Sin notas'}</span>
+                                                <button
+                                                    type="button"
+                                                    className="remove-btn"
+                                                    onClick={() => removeTempPayment(index)}
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        <div className="payment-summary">
+                                            Total a Agregar: ${tempPayments.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
-                            <div className="form-group">
-                                <label>Abono</label>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    value={formData.advance_payment}
-                                    onChange={(e) => setFormData({...formData, advance_payment: parseFloat(e.target.value)})}
-                                />
-                            </div>
-                            <div className="form-group">
-                                <label>Estado</label>
-                                <select
-                                    value={formData.status}
-                                    onChange={(e) => setFormData({...formData, status: e.target.value})}
-                                >
-                                    {Object.entries(statusLabels).map(([value, label]) => (
-                                        <option key={value} value={value}>{label}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label>Fecha de Entrega</label>
-                                <input
-                                    type="date"
-                                    value={formData.due_date}
-                                    onChange={(e) => setFormData({...formData, due_date: e.target.value})}
-                                />
-                            </div>
+
                             <div className="form-group">
                                 <label>Descripción</label>
                                 <textarea
@@ -307,6 +501,95 @@ function App() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Gestión de Abonos Rápida */}
+            {showPaymentModal && selectedTaskForPayment && (
+                <div className="modal-overlay">
+                    <div className="modal">
+                        <h2>Gestión de Abonos - {selectedTaskForPayment.title}</h2>
+                        <div className="payment-modal-info">
+                            <p>Cliente: {selectedTaskForPayment.client_name}</p>
+                            <p>Total: ${parseFloat(selectedTaskForPayment.price).toFixed(2)}</p>
+                            <p>Saldo: ${calculateRemaining(selectedTaskForPayment).toFixed(2)}</p>
+                        </div>
+
+                        {/* Lista de abonos existentes */}
+                        {payments.length > 0 && (
+                            <div className="existing-payments">
+                                <h4>Historial de Abonos</h4>
+                                {payments.map((payment) => (
+                                    <div key={payment.id} className="payment-item">
+                                        <span>${parseFloat(payment.amount).toFixed(2)}</span>
+                                        <span>{new Date(payment.payment_date).toLocaleDateString()}</span>
+                                        <span>{payment.notes || 'Sin notas'}</span>
+                                        <button
+                                            type="button"
+                                            className="remove-btn"
+                                            onClick={() => deleteExistingPayment(payment.id)}
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* Agregar nuevo abono */}
+                        <div className="new-payment-form">
+                            <h4>Registrar Nuevo Abono</h4>
+                            <div className="form-group">
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="Monto"
+                                    value={newPayment.amount}
+                                    onChange={(e) => setNewPayment({...newPayment, amount: e.target.value})}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <input
+                                    type="date"
+                                    value={newPayment.payment_date}
+                                    onChange={(e) => setNewPayment({...newPayment, payment_date: e.target.value})}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <input
+                                    type="text"
+                                    placeholder="Notas (opcional)"
+                                    value={newPayment.notes}
+                                    onChange={(e) => setNewPayment({...newPayment, notes: e.target.value})}
+                                />
+                            </div>
+                            <button
+                                type="button"
+                                className="save-btn"
+                                onClick={addPaymentToExistingTask}
+                            >
+                                Agregar Abono
+                            </button>
+                        </div>
+
+                        <div className="modal-actions">
+                            <button
+                                type="button"
+                                className="cancel-btn"
+                                onClick={() => {
+                                    setShowPaymentModal(false);
+                                    setSelectedTaskForPayment(null);
+                                    setNewPayment({
+                                        amount: '',
+                                        payment_date: new Date().toISOString().split('T')[0],
+                                        notes: ''
+                                    });
+                                }}
+                            >
+                                Cerrar
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
