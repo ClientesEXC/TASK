@@ -1,3 +1,4 @@
+/* ESTILOS EXISTENTES */
 * {
     margin: 0;
     padding: 0;
@@ -118,7 +119,7 @@ body {
     font-size: 14px;
 }
 
-/* Nuevos estilos para información de pagos */
+/* Información de pagos */
 .task-payments-info {
     display: flex;
     justify-content: space-between;
@@ -418,7 +419,239 @@ body {
     white-space: nowrap;
 }
 
+/* NUEVOS ESTILOS PARA LA VISTA DE PLAZOS */
+.deadline-view {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    min-height: 500px;
+}
+
+.deadline-container {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 30px;
+}
+
+.deadline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.deadline-list h2 {
+    color: #333;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.no-tasks {
+    text-align: center;
+    color: #6b7280;
+    padding: 40px;
+    background: #f9fafb;
+    border-radius: 8px;
+}
+
+.deadline-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.deadline-item:hover {
+    transform: translateX(5px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    border-left: 3px solid #667eea;
+}
+
+.deadline-task-info {
+    flex: 1;
+    margin-right: 20px;
+}
+
+.deadline-task-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.deadline-task-header h3 {
+    margin: 0;
+    color: #111827;
+    font-size: 16px;
+}
+
+.status-badge {
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-badge.cotizacion {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.status-badge.en_proceso {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.deadline-task-details {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    color: #6b7280;
+}
+
+.client-name {
+    font-weight: 500;
+}
+
+.due-date {
+    color: #4b5563;
+}
+
+.progress-bar-container {
+    width: 100%;
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 10px;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.deadline-days-remaining {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    min-width: 120px;
+}
+
+.days-display {
+    padding: 15px 20px;
+    border-radius: 8px;
+    text-align: center;
+    min-width: 100px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    50% {
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    100% {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+}
+
+.days-number {
+    font-size: 32px;
+    font-weight: bold;
+    line-height: 1;
+}
+
+.days-label {
+    font-size: 12px;
+    margin-top: 5px;
+    opacity: 0.9;
+}
+
+.deadline-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.icon-btn {
+    padding: 8px;
+    border: none;
+    border-radius: 6px;
+    background: #e5e7eb;
+    color: #374151;
+    cursor: pointer;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-btn:hover {
+    background: #3b82f6;
+    color: white;
+    transform: scale(1.1);
+}
+
+.icon-btn.payment:hover {
+    background: #10b981;
+}
+
+.deadline-legend {
+    background: #f9fafb;
+    border-radius: 8px;
+    padding: 20px;
+    height: fit-content;
+    position: sticky;
+    top: 20px;
+}
+
+.deadline-legend h3 {
+    margin: 0 0 15px 0;
+    color: #374151;
+    font-size: 16px;
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 10px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    color: #4b5563;
+}
+
+.legend-color {
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
 /* Mejoras responsive */
+@media (max-width: 1024px) {
+    .deadline-container {
+        grid-template-columns: 1fr;
+    }
+
+    .deadline-legend {
+        position: static;
+        margin-top: 20px;
+    }
+}
+
 @media (max-width: 768px) {
     .kanban-board {
         grid-template-columns: 1fr;
@@ -439,5 +672,28 @@ body {
     .payment-item span:nth-child(2),
     .payment-item span:nth-child(3) {
         display: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .deadline-item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .deadline-task-info {
+        margin-right: 0;
+        margin-bottom: 15px;
+    }
+
+    .deadline-days-remaining {
+        flex-direction: row;
+        justify-content: space-between;
+        width: 100%;
+    }
+
+    .deadline-task-details {
+        flex-direction: column;
+        gap: 5px;
     }
 }

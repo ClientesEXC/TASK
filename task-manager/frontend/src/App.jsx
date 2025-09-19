@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Calendar from 'react-calendar';
-import { Plus, Edit2, Trash2, Calendar as CalendarIcon, Layout, X, DollarSign } from 'lucide-react';
+import { Plus, Edit2, Trash2, Calendar as CalendarIcon, Layout, X, DollarSign, Clock } from 'lucide-react';
 import 'react-calendar/dist/Calendar.css';
 
 const API_URL = 'http://localhost:3001/api';
@@ -38,6 +38,20 @@ function App() {
 
     useEffect(() => {
         fetchTasks();
+        // Actualizar cada día a medianoche
+        const now = new Date();
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(0, 0, 0, 0);
+
+        const timeout = setTimeout(() => {
+            fetchTasks();
+            // Configurar intervalo diario después del primer timeout
+            const interval = setInterval(fetchTasks, 24 * 60 * 60 * 1000);
+            return () => clearInterval(interval);
+        }, tomorrow.getTime() - now.getTime());
+
+        return () => clearTimeout(timeout);
     }, []);
 
     const fetchTasks = async () => {
@@ -220,6 +234,61 @@ function App() {
         return total - paid;
     };
 
+    // Función para calcular días restantes
+    const calculateDaysRemaining = (dueDate) => {
+        if (!dueDate) return null;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const due = new Date(dueDate);
+        due.setHours(0, 0, 0, 0);
+
+        const diffTime = due - today;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        return diffDays;
+    };
+
+    // Función para determinar el color de urgencia
+    const getUrgencyColor = (days) => {
+        if (days === null) return '#9ca3af'; // gris para sin fecha
+        if (days < 0) return '#991b1b'; // rojo oscuro para vencidas
+        if (days <= 7) return '#dc2626'; // rojo para muy urgente
+        if (days <= 14) return '#f97316'; // naranja para urgente
+        return '#16a34a'; // verde para con tiempo
+    };
+
+    // Función para obtener el estilo de la barra de progreso
+    const getProgressBarStyle = (days, totalDays) => {
+        if (days === null || totalDays === null || totalDays <= 0) return { width: '100%', background: '#e5e7eb' };
+
+        const percentage = Math.max(0, Math.min(100, ((totalDays - days) / totalDays) * 100));
+        const color = getUrgencyColor(days);
+
+        return {
+            width: `${percentage}%`,
+            background: color,
+            transition: 'all 0.3s ease'
+        };
+    };
+
+    // Función para obtener tareas pendientes ordenadas por urgencia
+    const getPendingTasksSortedByDeadline = () => {
+        return tasks
+            .filter(task => task.status !== 'terminado' && task.status !== 'entregado')
+            .map(task => ({
+                ...task,
+                daysRemaining: calculateDaysRemaining(task.due_date),
+                totalDays: task.due_date ? calculateDaysRemaining(task.created_at) + calculateDaysRemaining(task.due_date) : null
+            }))
+            .sort((a, b) => {
+                if (a.daysRemaining === null) return 1;
+                if (b.daysRemaining === null) return -1;
+                return a.daysRemaining - b.daysRemaining;
+            });
+    };
+
     const TaskCard = ({ task }) => (
         <div
             className="task-card"
@@ -317,6 +386,123 @@ function App() {
         );
     };
 
+    const DeadlineView = () => {
+        const pendingTasks = getPendingTasksSortedByDeadline();
+
+        return (
+            <div className="deadline-view">
+                <div className="deadline-container">
+                    <div className="deadline-list">
+                        <h2>Tareas Pendientes por Plazo de Entrega</h2>
+                        {pendingTasks.length === 0 ? (
+                            <div className="no-tasks">No hay tareas pendientes con fecha de entrega</div>
+                        ) : (
+                            pendingTasks.map(task => {
+                                const daysRemaining = task.daysRemaining;
+                                const urgencyColor = getUrgencyColor(daysRemaining);
+                                const isOverdue = daysRemaining !== null && daysRemaining < 0;
+
+                                return (
+                                    <div key={task.id} className="deadline-item">
+                                        <div className="deadline-task-info">
+                                            <div className="deadline-task-header">
+                                                <h3>{task.title}</h3>
+                                                <span className={`status-badge ${task.status}`}>
+                                                    {statusLabels[task.status]}
+                                                </span>
+                                            </div>
+                                            <div className="deadline-task-details">
+                                                <span className="client-name">{task.client_name}</span>
+                                                {task.due_date && (
+                                                    <span className="due-date">
+                                                        Entrega: {new Date(task.due_date).toLocaleDateString()}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="progress-bar-container">
+                                                <div
+                                                    className="progress-bar-fill"
+                                                    style={getProgressBarStyle(daysRemaining, task.totalDays)}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="deadline-days-remaining">
+                                            <div
+                                                className="days-display"
+                                                style={{
+                                                    backgroundColor: urgencyColor,
+                                                    color: 'white'
+                                                }}
+                                            >
+                                                <div className="days-number">
+                                                    {daysRemaining === null ?
+                                                        'Sin fecha' :
+                                                        isOverdue ?
+                                                            `${Math.abs(daysRemaining)}` :
+                                                            daysRemaining
+                                                    }
+                                                </div>
+                                                <div className="days-label">
+                                                    {daysRemaining === null ?
+                                                        '' :
+                                                        isOverdue ?
+                                                            'días vencido' :
+                                                            daysRemaining === 1 ?
+                                                                'día' :
+                                                                'días'
+                                                    }
+                                                </div>
+                                            </div>
+                                            <div className="deadline-actions">
+                                                <button
+                                                    className="icon-btn"
+                                                    onClick={() => openModal(task)}
+                                                    title="Editar tarea"
+                                                >
+                                                    <Edit2 size={16} />
+                                                </button>
+                                                <button
+                                                    className="icon-btn payment"
+                                                    onClick={() => openPaymentModal(task)}
+                                                    title="Gestionar abonos"
+                                                >
+                                                    <DollarSign size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                    <div className="deadline-legend">
+                        <h3>Leyenda de Colores</h3>
+                        <div className="legend-item">
+                            <div className="legend-color" style={{ backgroundColor: '#991b1b' }}></div>
+                            <span>Vencido</span>
+                        </div>
+                        <div className="legend-item">
+                            <div className="legend-color" style={{ backgroundColor: '#dc2626' }}></div>
+                            <span>Urgente (≤ 7 días)</span>
+                        </div>
+                        <div className="legend-item">
+                            <div className="legend-color" style={{ backgroundColor: '#f97316' }}></div>
+                            <span>Pronto (8-14 días)</span>
+                        </div>
+                        <div className="legend-item">
+                            <div className="legend-color" style={{ backgroundColor: '#16a34a' }}></div>
+                            <span>Con tiempo (> 14 días)</span>
+                        </div>
+                        <div className="legend-item">
+                            <div className="legend-color" style={{ backgroundColor: '#9ca3af' }}></div>
+                            <span>Sin fecha definida</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="container">
             <div className="header">
@@ -337,6 +523,13 @@ function App() {
                             <CalendarIcon size={16} style={{ display: 'inline', marginRight: '5px' }} />
                             Calendario
                         </button>
+                        <button
+                            className={view === 'deadlines' ? 'active' : ''}
+                            onClick={() => setView('deadlines')}
+                        >
+                            <Clock size={16} style={{ display: 'inline', marginRight: '5px' }} />
+                            Plazos
+                        </button>
                     </div>
                     <button className="add-task-btn" onClick={() => openModal()}>
                         <Plus size={20} />
@@ -345,7 +538,9 @@ function App() {
                 </div>
             </div>
 
-            {view === 'kanban' ? <KanbanView /> : <CalendarView />}
+            {view === 'kanban' && <KanbanView />}
+            {view === 'calendar' && <CalendarView />}
+            {view === 'deadlines' && <DeadlineView />}
 
             {/* Modal de Tarea */}
             {showModal && (

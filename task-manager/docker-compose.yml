@@ -18,6 +18,7 @@ services:
 
   backend:
     build: ./backend
+    image: task-manager-backend
     container_name: task-backend
     ports:
       - "3001:3001"
