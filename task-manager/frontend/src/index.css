@@ -640,6 +640,129 @@ body {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
+/* ESTILOS PARA EL BUSCADOR */
+.search-container {
+    width: 100%;
+    margin: 20px 0;
+}
+
+.search-wrapper {
+    position: relative;
+    width: 100%;
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+.search-icon {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #6b7280;
+    pointer-events: none;
+}
+
+.search-input {
+    width: 100%;
+    padding: 12px 45px 12px 45px;
+    font-size: 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 12px;
+    outline: none;
+    transition: all 0.3s ease;
+    background: white;
+}
+
+.search-input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.search-input::placeholder {
+    color: #9ca3af;
+}
+
+.search-clear {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    opacity: 0.8;
+}
+
+.search-clear:hover {
+    opacity: 1;
+    transform: translateY(-50%) scale(1.1);
+}
+
+.search-results-info {
+    text-align: center;
+    margin-top: 10px;
+    font-size: 14px;
+    color: #6b7280;
+    font-style: italic;
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Efecto de highlight para resultados encontrados */
+.task-card {
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.task-card.search-highlighted {
+    box-shadow: 0 0 0 2px #667eea;
+    background: linear-gradient(135deg, #f3f4f6 0%, #fef3c7 100%);
+}
+
+/* Responsive para el buscador */
+@media (max-width: 768px) {
+    .search-wrapper {
+        max-width: 100%;
+    }
+
+    .search-input {
+        font-size: 14px;
+        padding: 10px 40px;
+    }
+
+    .header {
+        padding: 15px;
+    }
+}
+
+@media (max-width: 640px) {
+    .search-container {
+        margin: 15px 0;
+    }
+
+    .search-input {
+        font-size: 13px;
+    }
+}
+
 /* Mejoras responsive */
 @media (max-width: 1024px) {
     .deadline-container {

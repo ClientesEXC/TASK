@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Calendar from 'react-calendar';
-import { Plus, Edit2, Trash2, Calendar as CalendarIcon, Layout, X, DollarSign, Clock } from 'lucide-react';
+import { Plus, Edit2, Trash2, Calendar as CalendarIcon, Layout, X, DollarSign, Clock, Search } from 'lucide-react';
 import 'react-calendar/dist/Calendar.css';
 
 const API_URL = 'http://localhost:3001/api';
@@ -15,6 +15,8 @@ const statusLabels = {
 
 function App() {
     const [tasks, setTasks] = useState([]);
+    const [filteredTasks, setFilteredTasks] = useState([]); // NUEVO: Estado para tareas filtradas
+    const [searchTerm, setSearchTerm] = useState(''); // NUEVO: Estado para término de búsqueda
     const [view, setView] = useState('kanban');
     const [showModal, setShowModal] = useState(false);
     const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -54,10 +56,43 @@ function App() {
         return () => clearTimeout(timeout);
     }, []);
 
+    // NUEVO: Efecto para filtrar tareas cuando cambia el término de búsqueda o las tareas
+    useEffect(() => {
+        filterTasks();
+    }, [searchTerm, tasks]);
+
+    // NUEVA FUNCIÓN: Filtrar tareas por título o nombre del cliente
+    const filterTasks = () => {
+        if (!searchTerm.trim()) {
+            setFilteredTasks(tasks);
+            return;
+        }
+
+        const term = searchTerm.toLowerCase().trim();
+        const filtered = tasks.filter(task => {
+            const titleMatch = task.title?.toLowerCase().includes(term);
+            const clientMatch = task.client_name?.toLowerCase().includes(term);
+            const descriptionMatch = task.description?.toLowerCase().includes(term); // Bonus: también busca en descripción
+            return titleMatch || clientMatch || descriptionMatch;
+        });
+
+        setFilteredTasks(filtered);
+    };
+
+    // NUEVA FUNCIÓN: Limpiar búsqueda
+    const clearSearch = () => {
+        setSearchTerm('');
+        setFilteredTasks(tasks);
+    };
+
     const fetchTasks = async () => {
         try {
             const response = await axios.get(`${API_URL}/tasks`);
             setTasks(response.data);
+            // También actualizar las tareas filtradas si no hay búsqueda activa
+            if (!searchTerm.trim()) {
+                setFilteredTasks(response.data);
+            }
         } catch (error) {
             console.error('Error fetching tasks:', error);
         }
@@ -224,8 +259,9 @@ function App() {
         }
     };
 
+    // MODIFICADO: Usar filteredTasks en lugar de tasks
     const getTasksByStatus = (status) => {
-        return tasks.filter(task => task.status === status);
+        return filteredTasks.filter(task => task.status === status);
     };
 
     const calculateRemaining = (task) => {
@@ -273,9 +309,9 @@ function App() {
         };
     };
 
-    // Función para obtener tareas pendientes ordenadas por urgencia
+    // MODIFICADO: Usar filteredTasks
     const getPendingTasksSortedByDeadline = () => {
-        return tasks
+        return filteredTasks
             .filter(task => task.status !== 'terminado' && task.status !== 'entregado')
             .map(task => ({
                 ...task,
@@ -357,7 +393,8 @@ function App() {
 
     const CalendarView = () => {
         const tileContent = ({ date }) => {
-            const dayTasks = tasks.filter(task => {
+            // MODIFICADO: Usar filteredTasks
+            const dayTasks = filteredTasks.filter(task => {
                 if (!task.due_date) return false;
                 const taskDate = new Date(task.due_date);
                 return taskDate.toDateString() === date.toDateString();
@@ -395,7 +432,12 @@ function App() {
                     <div className="deadline-list">
                         <h2>Tareas Pendientes por Plazo de Entrega</h2>
                         {pendingTasks.length === 0 ? (
-                            <div className="no-tasks">No hay tareas pendientes con fecha de entrega</div>
+                            <div className="no-tasks">
+                                {searchTerm ?
+                                    'No se encontraron tareas pendientes con los criterios de búsqueda' :
+                                    'No hay tareas pendientes con fecha de entrega'
+                                }
+                            </div>
                         ) : (
                             pendingTasks.map(task => {
                                 const daysRemaining = task.daysRemaining;
@@ -503,11 +545,41 @@ function App() {
         );
     };
 
+    // NUEVO: Componente del Buscador
+    const SearchBar = () => (
+        <div className="search-container">
+            <div className="search-wrapper">
+                <Search className="search-icon" size={20} />
+                <input
+                    type="text"
+                    className="search-input"
+                    placeholder="Buscar por título o cliente..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                    <button className="search-clear" onClick={clearSearch}>
+                        <X size={18} />
+                    </button>
+                )}
+            </div>
+            {searchTerm && (
+                <div className="search-results-info">
+                    Encontradas: {filteredTasks.length} de {tasks.length} tareas
+                </div>
+            )}
+        </div>
+    );
+
     return (
         <div className="container">
             <div className="header">
                 <h1>Gestor de Tareas</h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+
+                {/* NUEVO: Buscador integrado */}
+                <SearchBar />
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginTop: '15px' }}>
                     <div className="view-toggles">
                         <button
                             className={view === 'kanban' ? 'active' : ''}
