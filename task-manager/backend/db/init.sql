@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS payments (
     );
 
 -- Índice para mejorar las consultas
-CREATE INDEX idx_payments_task_id ON payments(task_id);
+CREATE INDEX IF NOT EXISTS idx_payments_task_id ON payments(task_id);
 
 -- Trigger para actualizar updated_at en tasks
 CREATE OR REPLACE FUNCTION update_updated_at_column()

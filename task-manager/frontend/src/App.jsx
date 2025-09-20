@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Calendar from 'react-calendar';
-import { Plus, Edit2, Trash2, Calendar as CalendarIcon, Layout, X, DollarSign, Clock, Search } from 'lucide-react';
+import {
+    Plus, Edit2, Trash2, Calendar as CalendarIcon,
+    Layout, X, DollarSign, Clock, Search, Archive,
+    ChevronDown, ChevronUp, Eye, RotateCcw, Filter
+} from 'lucide-react';
 import 'react-calendar/dist/Calendar.css';
 
 const API_URL = 'http://localhost:3001/api';
@@ -13,16 +17,26 @@ const statusLabels = {
     entregado: 'Entregado'
 };
 
+const months = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
+
 function App() {
     const [tasks, setTasks] = useState([]);
-    const [filteredTasks, setFilteredTasks] = useState([]); // NUEVO: Estado para tareas filtradas
-    const [searchTerm, setSearchTerm] = useState(''); // NUEVO: Estado para término de búsqueda
+    const [filteredTasks, setFilteredTasks] = useState([]);
+    const [archivedTasks, setArchivedTasks] = useState([]);
+    const [archivedStats, setArchivedStats] = useState([]);
+    const [searchTerm, setSearchTerm] = useState('');
     const [view, setView] = useState('kanban');
     const [showModal, setShowModal] = useState(false);
     const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [showArchivedModal, setShowArchivedModal] = useState(false);
     const [editingTask, setEditingTask] = useState(null);
     const [selectedTaskForPayment, setSelectedTaskForPayment] = useState(null);
     const [payments, setPayments] = useState([]);
+    const [expandedArchiveMonths, setExpandedArchiveMonths] = useState({});
+    const [selectedArchiveFilter, setSelectedArchiveFilter] = useState({ year: null, month: null });
     const [formData, setFormData] = useState({
         title: '',
         client_name: '',
@@ -40,6 +54,8 @@ function App() {
 
     useEffect(() => {
         fetchTasks();
+        fetchArchivedStats();
+
         // Actualizar cada día a medianoche
         const now = new Date();
         const tomorrow = new Date(now);
@@ -48,20 +64,22 @@ function App() {
 
         const timeout = setTimeout(() => {
             fetchTasks();
+            fetchArchivedStats();
             // Configurar intervalo diario después del primer timeout
-            const interval = setInterval(fetchTasks, 24 * 60 * 60 * 1000);
+            const interval = setInterval(() => {
+                fetchTasks();
+                fetchArchivedStats();
+            }, 24 * 60 * 60 * 1000);
             return () => clearInterval(interval);
         }, tomorrow.getTime() - now.getTime());
 
         return () => clearTimeout(timeout);
     }, []);
 
-    // NUEVO: Efecto para filtrar tareas cuando cambia el término de búsqueda o las tareas
     useEffect(() => {
         filterTasks();
     }, [searchTerm, tasks]);
 
-    // NUEVA FUNCIÓN: Filtrar tareas por título o nombre del cliente
     const filterTasks = () => {
         if (!searchTerm.trim()) {
             setFilteredTasks(tasks);
@@ -72,14 +90,13 @@ function App() {
         const filtered = tasks.filter(task => {
             const titleMatch = task.title?.toLowerCase().includes(term);
             const clientMatch = task.client_name?.toLowerCase().includes(term);
-            const descriptionMatch = task.description?.toLowerCase().includes(term); // Bonus: también busca en descripción
+            const descriptionMatch = task.description?.toLowerCase().includes(term);
             return titleMatch || clientMatch || descriptionMatch;
         });
 
         setFilteredTasks(filtered);
     };
 
-    // NUEVA FUNCIÓN: Limpiar búsqueda
     const clearSearch = () => {
         setSearchTerm('');
         setFilteredTasks(tasks);
@@ -89,12 +106,35 @@ function App() {
         try {
             const response = await axios.get(`${API_URL}/tasks`);
             setTasks(response.data);
-            // También actualizar las tareas filtradas si no hay búsqueda activa
             if (!searchTerm.trim()) {
                 setFilteredTasks(response.data);
             }
         } catch (error) {
             console.error('Error fetching tasks:', error);
+        }
+    };
+
+    const fetchArchivedTasks = async (year = null, month = null) => {
+        try {
+            let url = `${API_URL}/tasks/archived`;
+            const params = [];
+            if (year) params.push(`year=${year}`);
+            if (month) params.push(`month=${month}`);
+            if (params.length > 0) url += `?${params.join('&')}`;
+
+            const response = await axios.get(url);
+            setArchivedTasks(response.data);
+        } catch (error) {
+            console.error('Error fetching archived tasks:', error);
+        }
+    };
+
+    const fetchArchivedStats = async () => {
+        try {
+            const response = await axios.get(`${API_URL}/tasks/archived/stats`);
+            setArchivedStats(response.data);
+        } catch (error) {
+            console.error('Error fetching archived stats:', error);
         }
     };
 
@@ -107,26 +147,55 @@ function App() {
         }
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
+    const restoreTask = async (taskId) => {
+        if (window.confirm('¿Deseas restaurar esta tarea a "En Proceso"?')) {
+            try {
+                await axios.patch(`${API_URL}/tasks/${taskId}/restore`, {
+                    newStatus: 'en_proceso'
+                });
+                fetchTasks();
+                fetchArchivedTasks(selectedArchiveFilter.year, selectedArchiveFilter.month);
+                fetchArchivedStats();
+            } catch (error) {
+                console.error('Error restoring task:', error);
+            }
+        }
+    };
+
+    const toggleArchiveMonth = (yearMonth) => {
+        setExpandedArchiveMonths(prev => ({
+            ...prev,
+            [yearMonth]: !prev[yearMonth]
+        }));
+
+        // Cargar tareas archivadas para ese mes si se expande
+        if (!expandedArchiveMonths[yearMonth]) {
+            const [year, month] = yearMonth.split('-');
+            fetchArchivedTasks(year, month);
+            setSelectedArchiveFilter({ year, month });
+        }
+    };
+
+    const openArchivedView = () => {
+        setShowArchivedModal(true);
+        fetchArchivedTasks();
+    };
+
+    const handleSubmit = async () => {
         try {
             if (editingTask) {
-                // Actualizar tarea existente
                 await axios.put(`${API_URL}/tasks/${editingTask.id}`, formData);
 
-                // Agregar nuevos abonos si hay
                 for (const payment of tempPayments) {
                     await axios.post(`${API_URL}/tasks/${editingTask.id}/payments`, payment);
                 }
             } else {
-                // Crear nueva tarea con abono inicial si existe
                 const taskData = { ...formData };
                 if (tempPayments.length > 0) {
                     taskData.initial_payment = tempPayments[0];
                 }
                 const response = await axios.post(`${API_URL}/tasks`, taskData);
 
-                // Agregar abonos adicionales si hay más de uno
                 for (let i = 1; i < tempPayments.length; i++) {
                     await axios.post(`${API_URL}/tasks/${response.data.id}/payments`, tempPayments[i]);
                 }
@@ -160,7 +229,6 @@ function App() {
                 description: task.description || '',
                 due_date: task.due_date ? task.due_date.split('T')[0] : ''
             });
-            // Cargar abonos existentes
             await fetchPayments(task.id);
             setTempPayments([]);
         } else {
@@ -259,7 +327,6 @@ function App() {
         }
     };
 
-    // MODIFICADO: Usar filteredTasks en lugar de tasks
     const getTasksByStatus = (status) => {
         return filteredTasks.filter(task => task.status === status);
     };
@@ -270,7 +337,6 @@ function App() {
         return total - paid;
     };
 
-    // Función para calcular días restantes
     const calculateDaysRemaining = (dueDate) => {
         if (!dueDate) return null;
 
@@ -286,16 +352,14 @@ function App() {
         return diffDays;
     };
 
-    // Función para determinar el color de urgencia
     const getUrgencyColor = (days) => {
-        if (days === null) return '#9ca3af'; // gris para sin fecha
-        if (days < 0) return '#991b1b'; // rojo oscuro para vencidas
-        if (days <= 7) return '#dc2626'; // rojo para muy urgente
-        if (days <= 14) return '#f97316'; // naranja para urgente
-        return '#16a34a'; // verde para con tiempo
+        if (days === null) return '#9ca3af';
+        if (days < 0) return '#991b1b';
+        if (days <= 7) return '#dc2626';
+        if (days <= 14) return '#f97316';
+        return '#16a34a';
     };
 
-    // Función para obtener el estilo de la barra de progreso
     const getProgressBarStyle = (days, totalDays) => {
         if (days === null || totalDays === null || totalDays <= 0) return { width: '100%', background: '#e5e7eb' };
 
@@ -309,7 +373,6 @@ function App() {
         };
     };
 
-    // MODIFICADO: Usar filteredTasks
     const getPendingTasksSortedByDeadline = () => {
         return filteredTasks
             .filter(task => task.status !== 'terminado' && task.status !== 'entregado')
@@ -325,11 +388,11 @@ function App() {
             });
     };
 
-    const TaskCard = ({ task }) => (
+    const TaskCard = ({ task, isArchived = false }) => (
         <div
-            className="task-card"
-            draggable
-            onDragStart={(e) => handleDragStart(e, task)}
+            className={`task-card ${isArchived ? 'archived' : ''}`}
+            draggable={!isArchived}
+            onDragStart={!isArchived ? (e) => handleDragStart(e, task) : undefined}
         >
             <div className="task-title">{task.title}</div>
             <div className="task-client">Cliente: {task.client_name}</div>
@@ -354,19 +417,42 @@ function App() {
                     Fecha: {new Date(task.due_date).toLocaleDateString()}
                 </div>
             )}
+            {task.delivered_date && (
+                <div className="delivered-info">
+                    Entregado: {new Date(task.delivered_date).toLocaleDateString()}
+                    {task.days_since_delivery && (
+                        <span className="days-badge">
+                            Hace {Math.floor(task.days_since_delivery)} días
+                        </span>
+                    )}
+                </div>
+            )}
             <div className="task-actions">
-                <button className="payment-btn" onClick={(e) => {
-                    e.stopPropagation();
-                    openPaymentModal(task);
-                }}>
-                    <DollarSign size={14} />
-                </button>
-                <button className="edit-btn" onClick={() => openModal(task)}>
-                    <Edit2 size={14} />
-                </button>
-                <button className="delete-btn" onClick={() => handleDelete(task.id)}>
-                    <Trash2 size={14} />
-                </button>
+                {isArchived ? (
+                    <>
+                        <button className="restore-btn" onClick={() => restoreTask(task.id)}>
+                            <RotateCcw size={14} />
+                        </button>
+                        <button className="view-btn" onClick={() => openModal(task)}>
+                            <Eye size={14} />
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <button className="payment-btn" onClick={(e) => {
+                            e.stopPropagation();
+                            openPaymentModal(task);
+                        }}>
+                            <DollarSign size={14} />
+                        </button>
+                        <button className="edit-btn" onClick={() => openModal(task)}>
+                            <Edit2 size={14} />
+                        </button>
+                        <button className="delete-btn" onClick={() => handleDelete(task.id)}>
+                            <Trash2 size={14} />
+                        </button>
+                    </>
+                )}
             </div>
         </div>
     );
@@ -382,6 +468,11 @@ function App() {
                 >
                     <div className={`column-header ${status}`}>
                         {statusLabels[status]} ({getTasksByStatus(status).length})
+                        {status === 'entregado' && (
+                            <span className="header-note">
+                                (Visible por 48h)
+                            </span>
+                        )}
                     </div>
                     {getTasksByStatus(status).map(task => (
                         <TaskCard key={task.id} task={task} />
@@ -393,7 +484,6 @@ function App() {
 
     const CalendarView = () => {
         const tileContent = ({ date }) => {
-            // MODIFICADO: Usar filteredTasks
             const dayTasks = filteredTasks.filter(task => {
                 if (!task.due_date) return false;
                 const taskDate = new Date(task.due_date);
@@ -545,7 +635,6 @@ function App() {
         );
     };
 
-    // NUEVO: Componente del Buscador
     const SearchBar = () => (
         <div className="search-container">
             <div className="search-wrapper">
@@ -571,42 +660,133 @@ function App() {
         </div>
     );
 
+    const ArchivedModal = () => {
+        // Agrupar tareas archivadas por año y mes
+        const groupedArchived = archivedStats.reduce((acc, stat) => {
+            const year = stat.year;
+            if (!acc[year]) acc[year] = [];
+            acc[year].push(stat);
+            return acc;
+        }, {});
+
+        return (
+            <div className="modal-overlay">
+                <div className="modal archived-modal">
+                    <div className="archived-header">
+                        <h2>
+                            <Archive size={24} />
+                            Tareas Archivadas
+                        </h2>
+                        <button className="close-btn" onClick={() => setShowArchivedModal(false)}>
+                            <X size={20} />
+                        </button>
+                    </div>
+
+                    <div className="archived-content">
+                        {Object.keys(groupedArchived).length === 0 ? (
+                            <div className="no-archived">
+                                <Archive size={48} />
+                                <p>No hay tareas archivadas aún</p>
+                                <span>Las tareas entregadas se archivan automáticamente después de 48 horas</span>
+                            </div>
+                        ) : (
+                            Object.entries(groupedArchived).map(([year, yearStats]) => (
+                                <div key={year} className="archived-year">
+                                    <h3 className="year-header">{year}</h3>
+                                    {yearStats.map(stat => {
+                                        const monthKey = `${stat.year}-${stat.month}`;
+                                        const isExpanded = expandedArchiveMonths[monthKey];
+                                        const monthName = months[parseInt(stat.month) - 1];
+
+                                        return (
+                                            <div key={monthKey} className="archived-month">
+                                                <button
+                                                    className="month-header"
+                                                    onClick={() => toggleArchiveMonth(monthKey)}
+                                                >
+                                                    <div className="month-info">
+                                                        <span className="month-name">{monthName}</span>
+                                                        <div className="month-stats">
+                                                            <span className="stat-badge">{stat.count} tareas</span>
+                                                            <span className="stat-badge revenue">
+                                                                ${parseFloat(stat.total_revenue || 0).toFixed(2)}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                                                </button>
+
+                                                {isExpanded && (
+                                                    <div className="archived-tasks-list">
+                                                        {archivedTasks
+                                                            .filter(task => {
+                                                                const taskDate = new Date(task.delivered_date);
+                                                                return taskDate.getFullYear() === parseInt(year) &&
+                                                                    taskDate.getMonth() + 1 === parseInt(stat.month);
+                                                            })
+                                                            .map(task => (
+                                                                <TaskCard
+                                                                    key={task.id}
+                                                                    task={task}
+                                                                    isArchived={true}
+                                                                />
+                                                            ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="container">
             <div className="header">
                 <h1>Gestor de Tareas</h1>
 
-                {/* NUEVO: Buscador integrado */}
                 <SearchBar />
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '20px', marginTop: '15px' }}>
+                <div className="header-controls">
                     <div className="view-toggles">
                         <button
                             className={view === 'kanban' ? 'active' : ''}
                             onClick={() => setView('kanban')}
                         >
-                            <Layout size={16} style={{ display: 'inline', marginRight: '5px' }} />
-                            Tablero
+                            <Layout size={16} />
+                            <span className="btn-text">Tablero</span>
                         </button>
                         <button
                             className={view === 'calendar' ? 'active' : ''}
                             onClick={() => setView('calendar')}
                         >
-                            <CalendarIcon size={16} style={{ display: 'inline', marginRight: '5px' }} />
-                            Calendario
+                            <CalendarIcon size={16} />
+                            <span className="btn-text">Calendario</span>
                         </button>
                         <button
                             className={view === 'deadlines' ? 'active' : ''}
                             onClick={() => setView('deadlines')}
                         >
-                            <Clock size={16} style={{ display: 'inline', marginRight: '5px' }} />
-                            Plazos
+                            <Clock size={16} />
+                            <span className="btn-text">Plazos</span>
                         </button>
                     </div>
-                    <button className="add-task-btn" onClick={() => openModal()}>
-                        <Plus size={20} />
-                        Nueva Tarea
-                    </button>
+
+                    <div className="header-actions">
+                        <button className="archive-btn" onClick={openArchivedView}>
+                            <Archive size={20} />
+                            <span className="btn-text">Archivados</span>
+                        </button>
+                        <button className="add-task-btn" onClick={() => openModal()}>
+                            <Plus size={20} />
+                            <span className="btn-text">Nueva Tarea</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -614,12 +794,15 @@ function App() {
             {view === 'calendar' && <CalendarView />}
             {view === 'deadlines' && <DeadlineView />}
 
+            {/* Modal de Archivados */}
+            {showArchivedModal && <ArchivedModal />}
+
             {/* Modal de Tarea */}
             {showModal && (
                 <div className="modal-overlay">
                     <div className="modal modal-large">
                         <h2>{editingTask ? 'Editar Tarea' : 'Nueva Tarea'}</h2>
-                        <form onSubmit={handleSubmit}>
+                        <div className="form-container">
                             <div className="form-row">
                                 <div className="form-group">
                                     <label>Título *</label>
@@ -679,7 +862,7 @@ function App() {
                                 {editingTask && payments.length > 0 && (
                                     <div className="existing-payments">
                                         <h4>Abonos Registrados</h4>
-                                        {payments.map((payment, index) => (
+                                        {payments.map((payment) => (
                                             <div key={payment.id} className="payment-item">
                                                 <span>${parseFloat(payment.amount).toFixed(2)}</span>
                                                 <span>{new Date(payment.payment_date).toLocaleDateString()}</span>
@@ -763,11 +946,11 @@ function App() {
                                 <button type="button" className="cancel-btn" onClick={closeModal}>
                                     Cancelar
                                 </button>
-                                <button type="submit" className="save-btn">
+                                <button type="button" className="save-btn" onClick={handleSubmit}>
                                     {editingTask ? 'Actualizar' : 'Guardar'}
                                 </button>
                             </div>
-                        </form>
+                        </div>
                     </div>
                 </div>
             )}
