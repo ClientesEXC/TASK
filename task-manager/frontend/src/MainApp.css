@@ -1,0 +1,325 @@
+/* MainApp.css - Sistema de navegación principal */
+
+.main-app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Header Principal */
+.main-header {
+    background: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    transition: all 0.3s ease;
+}
+
+.header-container {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    height: 70px;
+}
+
+/* Logo Section */
+.logo-section {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.app-title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0;
+    line-height: 1.2;
+}
+
+.app-subtitle {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin-top: 2px;
+}
+
+/* Desktop Navigation */
+.desktop-nav {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.tab-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: transparent;
+    border: 2px solid transparent;
+    border-radius: 10px;
+    color: #4b5563;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    font-size: 0.95rem;
+}
+
+.tab-button:hover {
+    background: #f3f4f6;
+    transform: translateY(-2px);
+}
+
+.tab-button.active {
+    background: linear-gradient(135deg,
+    color-mix(in srgb, var(--tab-color) 10%, white),
+    color-mix(in srgb, var(--tab-color) 5%, white));
+    color: var(--tab-color);
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+/* Notification Badge */
+.notification-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #ef4444;
+    color: white;
+    border-radius: 50%;
+    min-width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 0 5px;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+    }
+}
+
+/* Mobile Menu Toggle */
+.mobile-menu-toggle {
+    display: none;
+    background: transparent;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    color: #374151;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.mobile-menu-toggle:hover {
+    background: #f3f4f6;
+}
+
+/* Mobile Navigation */
+.mobile-nav {
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 20px 20px;
+    background: white;
+    border-top: 1px solid #e5e7eb;
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.mobile-tab-button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #f9fafb;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    color: #4b5563;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    text-align: left;
+}
+
+.mobile-tab-button:active {
+    transform: scale(0.98);
+}
+
+.mobile-tab-button.active {
+    background: linear-gradient(135deg,
+    color-mix(in srgb, var(--tab-color) 10%, white),
+    color-mix(in srgb, var(--tab-color) 5%, white));
+    border-color: var(--tab-color);
+    color: var(--tab-color);
+    font-weight: 600;
+}
+
+/* Breadcrumb */
+.breadcrumb {
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 12px 0;
+}
+
+.breadcrumb-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+}
+
+.breadcrumb-item {
+    color: #6b7280;
+}
+
+.breadcrumb-separator {
+    color: #9ca3af;
+}
+
+.breadcrumb-current {
+    font-weight: 600;
+    transition: color 0.3s ease;
+}
+
+/* Main Content */
+.main-content {
+    flex: 1;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px 0;
+    min-height: calc(100vh - 70px - 50px - 60px); /* header - breadcrumb - footer */
+}
+
+/* Footer */
+.main-footer {
+    background: #1f2937;
+    color: #9ca3af;
+    padding: 20px 0;
+    margin-top: auto;
+}
+
+.footer-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 20px;
+    text-align: center;
+    font-size: 0.875rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .header-content {
+        height: 60px;
+    }
+
+    .app-title {
+        font-size: 1.2rem;
+    }
+
+    .app-subtitle {
+        display: none;
+    }
+
+    .desktop-nav {
+        display: none;
+    }
+
+    .mobile-menu-toggle {
+        display: block;
+    }
+
+    .mobile-nav {
+        display: flex;
+    }
+
+    .main-content {
+        padding: 10px 0;
+    }
+
+    .breadcrumb {
+        padding: 8px 0;
+    }
+
+    .breadcrumb-container {
+        font-size: 0.8rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .header-content {
+        padding: 0 10px;
+    }
+
+    .mobile-nav {
+        padding: 10px;
+    }
+
+    .main-content {
+        min-height: calc(100vh - 60px - 40px - 50px);
+    }
+}
+
+/* Transiciones suaves */
+* {
+    transition: background-color 0.3s ease, color 0.3s ease, transform 0.3s ease;
+}
+
+/* Scrollbar personalizada */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #5a67d8 0%, #6b4b8a 100%);
+}
+
+/* Dark mode support (opcional) */
+@media (prefers-color-scheme: dark) {
+    /* Puedes agregar estilos para modo oscuro aquí si lo deseas */
+}

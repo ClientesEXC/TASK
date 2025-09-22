@@ -419,6 +419,380 @@ app.delete('/api/payments/:id', async (req, res) => {
     }
 });
 
+
+// AGREGAR ESTAS RUTAS AL ARCHIVO server.js EXISTENTE
+// Insertar después de las rutas de tareas y antes del app.listen
+
+// ========== RUTAS DE ITEMS DE ALQUILER ==========
+
+// Obtener todos los items de alquiler
+app.get('/api/rental-items', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                ri.*,
+                COUNT(r.id) as active_rentals
+            FROM rental_items ri
+            LEFT JOIN rentals r ON ri.id = r.item_id AND r.status = 'activo'
+            GROUP BY ri.id
+            ORDER BY ri.created_at DESC
+        `);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al obtener items' });
+    }
+});
+
+// Obtener item por ID
+app.get('/api/rental-items/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query(
+            'SELECT * FROM rental_items WHERE id = $1',
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Item no encontrado' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al obtener item' });
+    }
+});
+
+// Crear nuevo item
+app.post('/api/rental-items', async (req, res) => {
+    try {
+        const {
+            name, description, category, daily_rate,
+            weekly_rate, monthly_rate, status, quantity, image_url
+        } = req.body;
+
+        const result = await pool.query(
+            `INSERT INTO rental_items 
+            (name, description, category, daily_rate, weekly_rate, monthly_rate, status, quantity, image_url)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING *`,
+            [name, description, category, daily_rate, weekly_rate, monthly_rate, status || 'disponible', quantity || 1, image_url]
+        );
+
+        res.status(201).json(result.rows[0]);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al crear item' });
+    }
+});
+
+// Actualizar item
+app.put('/api/rental-items/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            name, description, category, daily_rate,
+            weekly_rate, monthly_rate, status, quantity, image_url
+        } = req.body;
+
+        const result = await pool.query(
+            `UPDATE rental_items 
+            SET name = $1, description = $2, category = $3, 
+                daily_rate = $4, weekly_rate = $5, monthly_rate = $6,
+                status = $7, quantity = $8, image_url = $9,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $10
+            RETURNING *`,
+            [name, description, category, daily_rate, weekly_rate,
+                monthly_rate, status, quantity, image_url, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Item no encontrado' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al actualizar item' });
+    }
+});
+
+// Actualizar solo el estado de un item
+app.patch('/api/rental-items/:id/status', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        const result = await pool.query(
+            'UPDATE rental_items SET status = $1 WHERE id = $2 RETURNING *',
+            [status, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Item no encontrado' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al actualizar estado' });
+    }
+});
+
+// Eliminar item
+app.delete('/api/rental-items/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Verificar si hay alquileres activos
+        const activeRentals = await pool.query(
+            'SELECT COUNT(*) as count FROM rentals WHERE item_id = $1 AND status = $2',
+            [id, 'activo']
+        );
+
+        if (parseInt(activeRentals.rows[0].count) > 0) {
+            return res.status(400).json({ error: 'No se puede eliminar un item con alquileres activos' });
+        }
+
+        const result = await pool.query(
+            'DELETE FROM rental_items WHERE id = $1 RETURNING *',
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Item no encontrado' });
+        }
+
+        res.json({ message: 'Item eliminado exitosamente' });
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al eliminar item' });
+    }
+});
+
+// ========== RUTAS DE ALQUILERES ==========
+
+// Obtener todos los alquileres
+app.get('/api/rentals', async (req, res) => {
+    try {
+        const { status } = req.query;
+
+        let query = `
+            SELECT 
+                r.*,
+                ri.name as item_name,
+                ri.category as item_category
+            FROM rentals r
+            JOIN rental_items ri ON r.item_id = ri.id
+        `;
+
+        if (status) {
+            query += ` WHERE r.status = '${status}'`;
+        }
+
+        query += ' ORDER BY r.created_at DESC';
+
+        const result = await pool.query(query);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al obtener alquileres' });
+    }
+});
+
+// Obtener estadísticas de alquileres
+app.get('/api/rentals/stats', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                COUNT(*) as total,
+                COUNT(CASE WHEN status = 'activo' THEN 1 END) as active,
+                SUM(CASE WHEN status = 'activo' THEN total_amount ELSE 0 END) as revenue,
+                COUNT(CASE WHEN status = 'activo' AND rental_end < CURRENT_DATE THEN 1 END) as overdue
+            FROM rentals
+        `);
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al obtener estadísticas' });
+    }
+});
+
+// Obtener alquiler por ID
+app.get('/api/rentals/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query(
+            `SELECT r.*, ri.name as item_name, ri.category as item_category
+            FROM rentals r
+            JOIN rental_items ri ON r.item_id = ri.id
+            WHERE r.id = $1`,
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Alquiler no encontrado' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al obtener alquiler' });
+    }
+});
+
+// Crear nuevo alquiler
+app.post('/api/rentals', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const {
+            item_id, customer_name, customer_phone, customer_email,
+            customer_address, rental_start, rental_end,
+            total_amount, deposit, notes
+        } = req.body;
+
+        // Crear alquiler
+        const result = await client.query(
+            `INSERT INTO rentals 
+            (item_id, customer_name, customer_phone, customer_email, customer_address,
+             rental_start, rental_end, total_amount, deposit, notes, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'activo')
+            RETURNING *`,
+            [item_id, customer_name, customer_phone, customer_email, customer_address,
+                rental_start, rental_end, total_amount, deposit || 0, notes]
+        );
+
+        // Actualizar estado del item
+        await client.query(
+            'UPDATE rental_items SET status = $1 WHERE id = $2',
+            ['alquilado', item_id]
+        );
+
+        await client.query('COMMIT');
+        res.status(201).json(result.rows[0]);
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al crear alquiler' });
+    } finally {
+        client.release();
+    }
+});
+
+// Marcar alquiler como devuelto
+app.patch('/api/rentals/:id/return', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const { id } = req.params;
+        const { return_date, condition_notes } = req.body;
+
+        // Obtener información del alquiler
+        const rentalInfo = await client.query(
+            'SELECT item_id FROM rentals WHERE id = $1',
+            [id]
+        );
+
+        if (rentalInfo.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Alquiler no encontrado' });
+        }
+
+        // Actualizar alquiler
+        const result = await client.query(
+            `UPDATE rentals 
+            SET status = 'finalizado', 
+                return_date = $1,
+                condition_notes = $2
+            WHERE id = $3
+            RETURNING *`,
+            [return_date || new Date(), condition_notes, id]
+        );
+
+        // Actualizar estado del item
+        await client.query(
+            'UPDATE rental_items SET status = $1 WHERE id = $2',
+            ['disponible', rentalInfo.rows[0].item_id]
+        );
+
+        await client.query('COMMIT');
+        res.json(result.rows[0]);
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al procesar devolución' });
+    } finally {
+        client.release();
+    }
+});
+
+// Actualizar alquiler
+app.put('/api/rentals/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            customer_name, customer_phone, customer_email,
+            customer_address, rental_end, deposit, notes
+        } = req.body;
+
+        const result = await pool.query(
+            `UPDATE rentals 
+            SET customer_name = $1, customer_phone = $2, customer_email = $3,
+                customer_address = $4, rental_end = $5, deposit = $6, notes = $7,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $8
+            RETURNING *`,
+            [customer_name, customer_phone, customer_email,
+                customer_address, rental_end, deposit, notes, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Alquiler no encontrado' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al actualizar alquiler' });
+    }
+});
+
+// Eliminar alquiler (solo si no está activo)
+app.delete('/api/rentals/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Verificar estado
+        const statusCheck = await pool.query(
+            'SELECT status FROM rentals WHERE id = $1',
+            [id]
+        );
+
+        if (statusCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Alquiler no encontrado' });
+        }
+
+        if (statusCheck.rows[0].status === 'activo') {
+            return res.status(400).json({ error: 'No se puede eliminar un alquiler activo' });
+        }
+
+        await pool.query('DELETE FROM rentals WHERE id = $1', [id]);
+
+        res.json({ message: 'Alquiler eliminado exitosamente' });
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al eliminar alquiler' });
+    }
+});
+
+
+
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en puerto ${PORT}`);
 });
