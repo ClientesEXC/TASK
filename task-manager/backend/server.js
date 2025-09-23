@@ -792,6 +792,337 @@ app.delete('/api/rentals/:id', async (req, res) => {
 });
 
 
+// Agregar estas rutas al archivo task-manager/backend/server.js
+// Después de las rutas existentes de rental
+
+// ========== RUTAS MEJORADAS DE ALQUILERES ==========
+
+// Obtener todos los items con disponibilidad real
+app.get('/api/rental-items/availability', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                id, name, description, category, 
+                daily_rate, weekly_rate, monthly_rate,
+                quantity_total, quantity_available,
+                quantity_total - quantity_available as quantity_rented,
+                image_url,
+                CASE 
+                    WHEN quantity_available > 0 THEN 'disponible'
+                    WHEN quantity_available = 0 THEN 'agotado'
+                    ELSE status
+                END as status
+            FROM rental_items
+            ORDER BY name
+        `);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al obtener disponibilidad' });
+    }
+});
+
+// Crear nuevo alquiler con todos los campos
+app.post('/api/rentals/enhanced', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const {
+            item_id,
+            customer_name,
+            customer_id_number,
+            customer_address,
+            customer_phone,
+            customer_email,
+            rental_start,
+            rental_end,
+            total_amount,
+            deposit,
+            has_collateral,
+            collateral_description,
+            quantity_rented,
+            notes,
+            initial_payment
+        } = req.body;
+
+        // Verificar disponibilidad
+        const itemCheck = await client.query(
+            'SELECT quantity_available FROM rental_items WHERE id = $1',
+            [item_id]
+        );
+
+        if (itemCheck.rows.length === 0) {
+            throw new Error('Artículo no encontrado');
+        }
+
+        if (itemCheck.rows[0].quantity_available < quantity_rented) {
+            throw new Error('No hay suficiente cantidad disponible');
+        }
+
+        // Crear el alquiler
+        const rentalResult = await client.query(
+            `INSERT INTO rentals 
+            (item_id, customer_name, customer_id_number, customer_phone, 
+             customer_email, customer_address, rental_start, rental_end, 
+             total_amount, deposit, has_collateral, collateral_description, 
+             quantity_rented, notes, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'activo')
+            RETURNING *`,
+            [item_id, customer_name, customer_id_number, customer_phone,
+                customer_email, customer_address, rental_start, rental_end,
+                total_amount, deposit || 0, has_collateral, collateral_description,
+                quantity_rented || 1, notes]
+        );
+
+        // Si hay pago inicial, registrarlo
+        if (initial_payment && initial_payment > 0) {
+            await client.query(
+                `INSERT INTO rental_payments 
+                (rental_id, amount, payment_date, payment_method, notes)
+                VALUES ($1, $2, $3, $4, $5)`,
+                [rentalResult.rows[0].id, initial_payment,
+                    new Date().toISOString().split('T')[0],
+                    'efectivo', 'Pago inicial']
+            );
+        }
+
+        await client.query('COMMIT');
+        res.status(201).json(rentalResult.rows[0]);
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error:', error);
+        res.status(500).json({ error: error.message || 'Error al crear alquiler' });
+    } finally {
+        client.release();
+    }
+});
+
+// Obtener alquileres pendientes de devolución
+app.get('/api/rentals/pending-returns', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                r.*,
+                ri.name as item_name,
+                ri.category as item_category,
+                ri.image_url as item_image,
+                CURRENT_DATE - r.rental_end as days_overdue,
+                COALESCE(SUM(rp.amount), 0) as total_paid,
+                r.total_amount - COALESCE(SUM(rp.amount), 0) as balance_due
+            FROM rentals r
+            JOIN rental_items ri ON r.item_id = ri.id
+            LEFT JOIN rental_payments rp ON r.id = rp.rental_id
+            WHERE r.status = 'activo'
+            GROUP BY r.id, ri.name, ri.category, ri.image_url
+            ORDER BY r.rental_end ASC
+        `);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al obtener pendientes' });
+    }
+});
+
+// Procesar devolución de artículo
+app.post('/api/rentals/:id/return', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const { id } = req.params;
+        const {
+            return_date,
+            quantity_returned,
+            condition_status,
+            damage_notes,
+            return_notes,
+            final_payment
+        } = req.body;
+
+        // Obtener información del alquiler
+        const rentalInfo = await client.query(
+            `SELECT r.*, ri.name as item_name 
+             FROM rentals r 
+             JOIN rental_items ri ON r.item_id = ri.id 
+             WHERE r.id = $1`,
+            [id]
+        );
+
+        if (rentalInfo.rows.length === 0) {
+            throw new Error('Alquiler no encontrado');
+        }
+
+        const rental = rentalInfo.rows[0];
+
+        // Registrar la devolución
+        await client.query(
+            `INSERT INTO rental_returns 
+            (rental_id, return_date, quantity_returned, condition_status, 
+             damage_notes, return_notes)
+            VALUES ($1, $2, $3, $4, $5, $6)`,
+            [id, return_date || new Date(), quantity_returned || rental.quantity_rented,
+                condition_status || 'bueno', damage_notes, return_notes]
+        );
+
+        // Si hay pago final, registrarlo
+        if (final_payment && final_payment > 0) {
+            await client.query(
+                `INSERT INTO rental_payments 
+                (rental_id, amount, payment_date, payment_method, notes)
+                VALUES ($1, $2, $3, $4, $5)`,
+                [id, final_payment, new Date().toISOString().split('T')[0],
+                    'efectivo', 'Pago al devolver']
+            );
+        }
+
+        // Actualizar el estado del alquiler
+        await client.query(
+            `UPDATE rentals 
+             SET status = 'finalizado', 
+                 return_date = $1,
+                 condition_notes = $2
+             WHERE id = $3`,
+            [return_date || new Date(), return_notes, id]
+        );
+
+        await client.query('COMMIT');
+        res.json({ message: 'Devolución procesada exitosamente', rental: rental });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Error:', error);
+        res.status(500).json({ error: error.message || 'Error al procesar devolución' });
+    } finally {
+        client.release();
+    }
+});
+
+// ========== RUTAS DE ABONOS PARA ALQUILERES ==========
+
+// Obtener abonos de un alquiler
+app.get('/api/rentals/:id/payments', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query(
+            `SELECT * FROM rental_payments 
+             WHERE rental_id = $1 
+             ORDER BY payment_date DESC, created_at DESC`,
+            [id]
+        );
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al obtener abonos' });
+    }
+});
+
+// Agregar abono a un alquiler
+app.post('/api/rentals/:id/payments', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { amount, payment_date, payment_method, notes } = req.body;
+
+        const result = await pool.query(
+            `INSERT INTO rental_payments 
+            (rental_id, amount, payment_date, payment_method, notes)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *`,
+            [id, amount, payment_date || new Date().toISOString().split('T')[0],
+                payment_method || 'efectivo', notes]
+        );
+
+        res.status(201).json(result.rows[0]);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al agregar abono' });
+    }
+});
+
+// Eliminar abono
+app.delete('/api/rental-payments/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const result = await pool.query(
+            'DELETE FROM rental_payments WHERE id = $1 RETURNING *',
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Abono no encontrado' });
+        }
+
+        res.json({ message: 'Abono eliminado exitosamente' });
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al eliminar abono' });
+    }
+});
+
+// Obtener estadísticas mejoradas
+app.get('/api/rentals/stats/enhanced', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                COUNT(DISTINCT r.id) as total_rentals,
+                COUNT(DISTINCT CASE WHEN r.status = 'activo' THEN r.id END) as active_rentals,
+                COUNT(DISTINCT CASE WHEN r.status = 'activo' AND r.rental_end < CURRENT_DATE THEN r.id END) as overdue_rentals,
+                COUNT(DISTINCT CASE WHEN r.status = 'finalizado' THEN r.id END) as completed_rentals,
+                COALESCE(SUM(r.total_amount), 0) as total_revenue,
+                COALESCE(SUM(rp.amount), 0) as total_collected,
+                COALESCE(SUM(r.total_amount), 0) - COALESCE(SUM(rp.amount), 0) as pending_payments,
+                COUNT(DISTINCT ri.id) as total_items,
+                COALESCE(SUM(ri.quantity_total), 0) as total_inventory,
+                COALESCE(SUM(ri.quantity_available), 0) as available_inventory
+            FROM rental_items ri
+            LEFT JOIN rentals r ON ri.id = r.item_id
+            LEFT JOIN rental_payments rp ON r.id = rp.rental_id
+        `);
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al obtener estadísticas' });
+    }
+});
+
+// Actualizar cantidad de un artículo
+app.patch('/api/rental-items/:id/quantity', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { quantity_total } = req.body;
+
+        const result = await pool.query(
+            `UPDATE rental_items 
+             SET quantity_total = $1,
+                 quantity_available = quantity_available + ($1 - quantity_total)
+             WHERE id = $2
+             RETURNING *`,
+            [quantity_total, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Artículo no encontrado' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al actualizar cantidad' });
+    }
+});
+
+// Marcar alquileres vencidos (ejecutar periódicamente)
+app.post('/api/rentals/mark-overdue', async (req, res) => {
+    try {
+        await pool.query('SELECT mark_overdue_rentals()');
+        res.json({ message: 'Alquileres vencidos actualizados' });
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Error al marcar vencidos' });
+    }
+});
+
 
 app.listen(PORT, () => {
     console.log(`Servidor corriendo en puerto ${PORT}`);
