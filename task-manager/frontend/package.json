@@ -1,15 +1,14 @@
-
 {
   "name": "task-manager-frontend",
   "version": "2.0.0",
   "description": "Frontend para Sistema de Gestión de Tareas y Alquileres",
   "private": true,
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
     "axios": "^1.6.2",
-    "react-calendar": "^4.6.1",
     "lucide-react": "^0.294.0",
+    "react": "^18.2.0",
+    "react-calendar": "^4.6.1",
+    "react-dom": "^18.2.0",
     "react-scripts": "5.0.1"
   },
   "scripts": {

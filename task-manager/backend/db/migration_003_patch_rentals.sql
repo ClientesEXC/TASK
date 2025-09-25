@@ -1,0 +1,11 @@
+-- Patch idempotente
+ALTER TABLE IF EXISTS rentals
+    ADD COLUMN IF NOT EXISTS customer_id_number VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS has_collateral BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS collateral_description TEXT,
+    ADD COLUMN IF NOT EXISTS quantity_rented INTEGER DEFAULT 1,
+    ADD COLUMN IF NOT EXISTS notes TEXT;
+
+ALTER TABLE IF EXISTS rental_items
+    ADD COLUMN IF NOT EXISTS quantity_total INTEGER DEFAULT 1,
+    ADD COLUMN IF NOT EXISTS image_url TEXT;

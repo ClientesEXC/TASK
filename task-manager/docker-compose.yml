@@ -16,25 +16,6 @@ services:
     networks:
       - task-network
 
-  backend:
-    build: ./backend
-    image: task-manager-backend
-    container_name: task-backend
-    ports:
-      - "3001:3001"
-    environment:
-      DB_HOST: postgres
-      DB_USER: taskuser
-      DB_PASSWORD: taskpass
-      DB_NAME: taskmanager
-      DB_PORT: 5432
-    depends_on:
-      - postgres
-    networks:
-      - task-network
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
 
 volumes:
   postgres_data:
