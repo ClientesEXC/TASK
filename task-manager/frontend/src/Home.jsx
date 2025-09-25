@@ -18,7 +18,7 @@ function Home({ switchToTab }) {
         overdueTasks: 0,
         weekTasks: 0
     });
-
+    const [tasks, setTasks] = useState([]);
     const [rentalStats, setRentalStats] = useState({
         total: 0,
         active: 0,
@@ -35,32 +35,31 @@ function Home({ switchToTab }) {
         return () => clearInterval(interval);
     }, []);
 
+    // Fragmento corregido de Home.jsx - Líneas 85-105 aproximadamente
+// Reemplazar la sección de fetchDashboardData con este código:
+
     const fetchDashboardData = async () => {
-        setLoading(true);
         try {
-            // Fetch task statistics
+            // Fetch tareas
             const tasksResponse = await axios.get(`${API_URL}/tasks`);
             const tasks = tasksResponse.data;
+            setTasks(tasks);
 
             // Calcular estadísticas de tareas
             const stats = {
                 total: tasks.length,
-                byStatus: {},
-                revenue: 0,
-                pendingPayments: 0,
                 overdueTasks: 0,
-                weekTasks: 0
-            };
-
-            const statusCounts = {
-                cotizacion: 0,
-                en_proceso: 0,
-                terminado: 0,
-                entregado: 0
+                weekTasks: 0,
+                pendingPayments: 0,
+                revenue: 0,
+                byStatus: {}
             };
 
             const today = new Date();
-            const weekFromNow = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+            const weekFromNow = new Date(today);
+            weekFromNow.setDate(today.getDate() + 7);
+
+            const statusCounts = {};
 
             tasks.forEach(task => {
                 // Contar por estado
@@ -91,12 +90,18 @@ function Home({ switchToTab }) {
             stats.byStatus = statusCounts;
             setTaskStats(stats);
 
-            // Fetch rental statistics (cuando esté implementado)
+            // FIX: Manejo correcto del endpoint de estadísticas de alquileres
             try {
                 const rentalsResponse = await axios.get(`${API_URL}/rentals/stats`);
                 setRentalStats(rentalsResponse.data);
             } catch (error) {
-                console.log('Rentals API not yet implemented');
+                // Si el endpoint no existe o hay error, usar valores por defecto
+                console.log('Rentals stats endpoint not available, using defaults');
+                setRentalStats({
+                    active: 0,
+                    total: 0,
+                    overdue: 0
+                });
             }
 
             // Generar actividades recientes
@@ -104,6 +109,20 @@ function Home({ switchToTab }) {
 
         } catch (error) {
             console.error('Error fetching dashboard data:', error);
+            // Establecer valores por defecto en caso de error
+            setTaskStats({
+                total: 0,
+                overdueTasks: 0,
+                weekTasks: 0,
+                pendingPayments: 0,
+                revenue: 0,
+                byStatus: {}
+            });
+            setRentalStats({
+                active: 0,
+                total: 0,
+                overdue: 0
+            });
         } finally {
             setLoading(false);
         }

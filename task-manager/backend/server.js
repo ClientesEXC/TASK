@@ -799,7 +799,7 @@ app.delete('/api/rental-items/:id', async (req, res) => {
             return res.status(404).json({ error: 'Artículo no encontrado' });
         }
 
-        // 2. Verificar si hay alquileres ACTIVOS (no todos los alquileres)
+        // 2. Verificar si hay alquileres ACTIVOS
         const activeRentals = await client.query(
             `SELECT COUNT(*) as count 
              FROM rentals 
@@ -815,11 +815,7 @@ app.delete('/api/rental-items/:id', async (req, res) => {
             });
         }
 
-        // 3. Opcional: Eliminar historial de alquileres finalizados y pagos
-        // (o mantenerlos para historial)
-
-        // Opción A: Mantener historial (recomendado)
-        // Solo desvincular el artículo
+        // 3. Desvincular alquileres históricos (mantener para registro)
         await client.query(
             `UPDATE rentals 
              SET item_id = NULL 
@@ -828,25 +824,7 @@ app.delete('/api/rental-items/:id', async (req, res) => {
             [id]
         );
 
-        // Opción B: Eliminar todo el historial (no recomendado)
-        // Primero eliminar pagos de alquileres relacionados
-        /*
-        await client.query(
-            `DELETE FROM rental_payments
-             WHERE rental_id IN (
-                SELECT id FROM rentals WHERE item_id = $1
-             )`,
-            [id]
-        );
-
-        // Luego eliminar alquileres
-        await client.query(
-            'DELETE FROM rentals WHERE item_id = $1',
-            [id]
-        );
-        */
-
-        // 4. Finalmente, eliminar el artículo
+        // 4. Eliminar el artículo
         const result = await client.query(
             'DELETE FROM rental_items WHERE id = $1 RETURNING *',
             [id]
@@ -902,8 +880,6 @@ app.delete('/api/rental-payments/:id', async (req, res) => {
     }
 });
 
-
-
 // Estadísticas del dashboard
 app.get('/api/rentals/statistics', async (req, res) => {
     try {
@@ -911,29 +887,29 @@ app.get('/api/rentals/statistics', async (req, res) => {
             WITH rental_stats AS (
                 SELECT
                     COUNT(DISTINCT CASE WHEN status = 'activo' THEN id END) as active_rentals,
-                    COUNT(DISTINCT CASE
-                                       WHEN status = 'activo' AND rental_end < CURRENT_DATE
-                                           THEN id
-                        END) as overdue_rentals,
-                    COALESCE(SUM(CASE WHEN status = 'activo' THEN quantity_rented ELSE 0 END), 0) as total_rented_units
+                    COUNT(DISTINCT CASE 
+                        WHEN status = 'activo' AND rental_end < CURRENT_DATE 
+                        THEN id 
+                    END) as overdue_rentals
                 FROM rentals
             ),
-                 item_stats AS (
-                     SELECT
-                         COUNT(DISTINCT id) as total_items,
-                         COALESCE(SUM(quantity_total), 0) as total_units,
-                         COALESCE(SUM(quantity_available), 0) as available_units
-                     FROM rental_items
-                 )
+            item_stats AS (
+                SELECT
+                    COUNT(DISTINCT id) as total_items,
+                    COALESCE(SUM(quantity_total), 0) as total_units,
+                    COALESCE(SUM(quantity_available), 0) as available_units
+                FROM rental_items
+            )
             SELECT
                 i.total_items,
                 i.total_units,
                 i.available_units,
-                COALESCE(r.total_rented_units, 0) as rented_units,
+                -- FIX: Calcular correctamente las unidades alquiladas
+                (i.total_units - i.available_units) as rented_units,
                 COALESCE(r.active_rentals, 0) as active_rentals,
                 COALESCE(r.overdue_rentals, 0) as overdue_rentals
             FROM item_stats i
-                     CROSS JOIN rental_stats r
+            CROSS JOIN rental_stats r
         `);
 
         res.json(result.rows[0]);
@@ -1001,6 +977,31 @@ app.post('/api/rentals/check-availability', async (req, res) => {
         res.status(500).json({ error: 'Error al verificar disponibilidad' });
     }
 });
+
+app.get('/api/rentals/stats', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                COUNT(DISTINCT CASE WHEN status = 'activo' THEN id END) as active,
+                COUNT(DISTINCT id) as total,
+                COUNT(DISTINCT CASE 
+                    WHEN status = 'activo' AND rental_end < CURRENT_DATE 
+                    THEN id 
+                END) as overdue
+            FROM rentals
+        `);
+
+        res.json(result.rows[0] || { active: 0, total: 0, overdue: 0 });
+    } catch (error) {
+        console.error('Error fetching rental stats:', error);
+        res.status(500).json({
+            active: 0,
+            total: 0,
+            overdue: 0
+        });
+    }
+});
+
 
 // Agregar esta ruta en server.js para poder sincronizar manualmente:
 

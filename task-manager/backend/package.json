@@ -10,6 +10,7 @@
     "db:migrate": "node db/setup.js",
     "test": "node test/test-rental-system.js",
     "test:rentals": "node test/test-rental-system.js",
+    "migrate:production": "psql -U $DB_USER -d $DB_NAME -f db/migration_004_rental_system_complete.sql",
     "clean": "node db/clean.js"
   },
   "dependencies": {
