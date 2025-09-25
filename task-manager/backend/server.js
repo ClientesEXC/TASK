@@ -15,7 +15,11 @@ const PORT = process.env.PORT || 3001;
 
 // Configuración de CORS mejorada
 const corsOptions = {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: [
+        'http://localhost:3000',          // para cuando usas el mismo PC
+        'http://127.0.0.1:3000',          // opcional
+        'http://19.18.1.101:3000'         // para otros equipos en tu red LAN
+    ],
     credentials: true,
     optionsSuccessStatus: 200
 };
@@ -703,6 +707,42 @@ app.patch('/api/rentals/:id/return', async (req, res) => {
     }
 });
 
+// Crear nuevo artículo de alquiler
+app.post('/api/rental-items', async (req, res) => {
+    try {
+        const {
+            name,
+            description,
+            category,
+            daily_rate,
+            weekly_rate,
+            monthly_rate,
+            quantity_total,
+            quantity_available,
+            status = 'disponible',
+            image_url
+        } = req.body;
+
+        // Si no se especifica quantity_available, usar quantity_total
+        const available = quantity_available !== undefined ? quantity_available : quantity_total;
+
+        const result = await pool.query(
+            `INSERT INTO rental_items 
+            (name, description, category, daily_rate, weekly_rate, monthly_rate, 
+             quantity_total, quantity_available, status, image_url)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING *`,
+            [name, description, category, daily_rate, weekly_rate, monthly_rate,
+                quantity_total, available, status, image_url]
+        );
+
+        res.status(201).json(result.rows[0]);
+    } catch (error) {
+        console.error('Error creating rental item:', error);
+        res.status(500).json({ error: 'Error al crear artículo' });
+    }
+});
+
 // Obtener pagos de un alquiler
 app.get('/api/rentals/:id/payments', async (req, res) => {
     try {
@@ -1078,6 +1118,6 @@ app.post('/api/rental-items/sync-quantities', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Servidor corriendo en puerto ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Servidor corriendo en http://0.0.0.0:${PORT}`);
 });

@@ -16,11 +16,15 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
 // Configuración de categorías y estados
 const CATEGORIES = {
-    herramientas: { label: 'Herramientas', icon: '🔧', color: '#f59e0b' },
-    equipos: { label: 'Equipos', icon: '⚙️', color: '#3b82f6' },
-    vehiculos: { label: 'Vehículos', icon: '🚗', color: '#10b981' },
-    espacios: { label: 'Espacios', icon: '🏠', color: '#8b5cf6' },
-    otros: { label: 'Otros', icon: '📦', color: '#6b7280' }
+    herramientas: { label: 'Herramientas', icon: '🔨' },
+    construccion: { label: 'Construcción', icon: '🏗️' },
+    jardineria: { label: 'Jardinería', icon: '🌱' },
+    limpieza: { label: 'Limpieza', icon: '🧹' },
+    eventos: { label: 'Eventos', icon: '🎉' },
+    vehiculos: { label: 'Vehículos', icon: '🚗' },
+    electronica: { label: 'Electrónica', icon: '📱' },
+    deportes: { label: 'Deportes', icon: '⚽' },
+    otros: { label: 'Otros', icon: '📦' }
 };
 
 const STATUS_CONFIG = {
