@@ -16,14 +16,9 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
 
 // Configuración de categorías y estados
 const CATEGORIES = {
-    herramientas: { label: 'Herramientas', icon: '🔨' },
-    construccion: { label: 'Construcción', icon: '🏗️' },
-    jardineria: { label: 'Jardinería', icon: '🌱' },
-    limpieza: { label: 'Limpieza', icon: '🧹' },
-    eventos: { label: 'Eventos', icon: '🎉' },
-    vehiculos: { label: 'Vehículos', icon: '🚗' },
-    electronica: { label: 'Electrónica', icon: '📱' },
-    deportes: { label: 'Deportes', icon: '⚽' },
+    herramientas: { label: 'Mesas'},
+    construccion: { label: 'Números'},
+    jardineria: { label: 'Sillas' },
     otros: { label: 'Otros', icon: '📦' }
 };
 
@@ -131,7 +126,10 @@ function Rental({ updateTabData }) {
         payment_method: 'efectivo',
         notes: ''
     });
-
+    // Estados de subida de imagen
+    const [imageFile, setImageFile] = useState(null);
+    const [imagePreview, setImagePreview] = useState('');
+    const [uploadingImage, setUploadingImage] = useState(false);
     // Estadísticas computadas
     const stats = useMemo(() => {
         // Calcular totales de items
@@ -175,7 +173,7 @@ function Rental({ updateTabData }) {
                 notification: stats.overdueRentals > 0 ? stats.overdueRentals : null
             });
         }
-    }, [stats.overdueRentals, updateTabData]);
+    }, [stats.overdueRentals]);
 
     // Funciones de carga de datos
     const loadInitialData = async () => {
@@ -306,20 +304,89 @@ function Rental({ updateTabData }) {
         }
     }, [selectedItem, calculateRentalPrice]);
 
+    // Función para subir la imagen al servidor
+    const handleImageUpload = async (file) => {
+        if (!file) return;
+
+        // Validar que sea PNG
+        if (!file.type.includes('png')) {
+            showNotification('Solo se permiten imágenes PNG', 'error');
+            return;
+        }
+
+        // Validar tamaño (máximo 2MB)
+        if (file.size > 2 * 1024 * 1024) {
+            showNotification('La imagen no debe superar 2MB', 'error');
+            return;
+        }
+
+        setUploadingImage(true);
+
+        try {
+            const formData = new FormData();
+            formData.append('image', file);
+
+            const response = await axios.post(
+                `${API_URL.replace('/api', '')}/api/upload/image`,
+                formData,
+                {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                }
+            );
+
+            const imageUrl = response.data.url;
+            setItemForm({ ...itemForm, image_url: imageUrl });
+            setImagePreview(imageUrl);
+            showNotification('Imagen subida exitosamente', 'success');
+        } catch (error) {
+            console.error('Error al subir imagen:', error);
+            showNotification('Error al subir la imagen', 'error');
+        } finally {
+            setUploadingImage(false);
+        }
+    };
+
+// Función para eliminar la imagen
+    const handleRemoveImage = () => {
+        setImageFile(null);
+        setImagePreview('');
+        setItemForm({ ...itemForm, image_url: '' });
+    };
+
     // Manejadores de modales
     const openModal = (modalName, data = null) => {
         setModals(prev => ({ ...prev, [modalName]: true }));
 
-        if (modalName === 'item' && data) {
-            setEditingItem(data);
-            setItemForm({
-                name: data.name,
-                description: data.description || '',
-                category: data.category,
-                quantity: data.quantity_total || 1,
-                rental_price: data.daily_rate || 0,
-                image_url: data.image_url || ''
-            });
+        if (modalName === 'item') {
+            if (data) {
+                setEditingItem(data);
+                setItemForm({
+                    name: data.name || '',
+                    description: data.description || '',
+                    category: data.category || 'herramientas',
+                    quantity: data.quantity_total || 1,
+                    rental_price: data.daily_rate || 0,
+                    image_url: data.image_url || ''
+                });
+                // Establecer preview si hay imagen existente
+                setImagePreview(data.image_url || '');
+            } else {
+                setEditingItem(null);
+                setItemForm({
+                    name: '',
+                    description: '',
+                    category: 'herramientas',
+                    quantity: 1,
+                    rental_price: 0,
+                    image_url: ''
+                });
+                setImagePreview('');
+                setImageFile(null);
+            }
+
+
         } else if (modalName === 'rental' && data) {
             setSelectedItem(data);
             setRentalForm(prev => ({
@@ -348,6 +415,8 @@ function Rental({ updateTabData }) {
                 rental_price: 0,
                 image_url: ''
             });
+            setImagePreview('');
+            setImageFile(null);
         } else if (modalName === 'rental') {
             setSelectedItem(null);
             setRentalForm({
@@ -1041,14 +1110,67 @@ function Rental({ updateTabData }) {
                             </div>
 
                             <div className="form-group">
-                                <label>URL de imagen (PNG)</label>
+                                <label>Imagen del artículo (PNG)</label>
+
+                                {/* Preview de la imagen */}
+                                {(imagePreview || itemForm.image_url) && (
+                                    <div className="image-preview-container">
+                                        <img
+                                            src={imagePreview || itemForm.image_url}
+                                            alt="Preview"
+                                            className="image-preview"
+                                        />
+                                        <button
+                                            type="button"
+                                            className="remove-image-btn"
+                                            onClick={handleRemoveImage}
+                                            title="Eliminar imagen"
+                                        >
+                                            <X size={20} />
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Input de archivo oculto */}
                                 <input
-                                    type="url"
-                                    className="form-control"
-                                    value={itemForm.image_url}
-                                    onChange={(e) => setItemForm({...itemForm, image_url: e.target.value})}
-                                    placeholder="https://ejemplo.com/imagen.png"
+                                    type="file"
+                                    id="image-upload"
+                                    accept="image/png"
+                                    onChange={(e) => {
+                                        const file = e.target.files[0];
+                                        if (file) {
+                                            setImageFile(file);
+                                            handleImageUpload(file);
+                                        }
+                                    }}
+                                    style={{ display: 'none' }}
                                 />
+
+                                {/* Botón personalizado para subir imagen */}
+                                <label
+                                    htmlFor="image-upload"
+                                    className={`upload-image-btn ${uploadingImage ? 'uploading' : ''}`}
+                                >
+                                    {uploadingImage ? (
+                                        <>
+                                            <div className="spinner-small"></div>
+                                            <span>Subiendo...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Camera size={20} />
+                                            <span>
+                    {imagePreview || itemForm.image_url
+                        ? 'Cambiar imagen'
+                        : 'Subir imagen PNG'}
+                </span>
+                                        </>
+                                    )}
+                                </label>
+
+                                <small className="form-help">
+                                    Solo archivos PNG. Tamaño máximo: 2MB
+                                </small>
                             </div>
 
                             <div className="form-actions">

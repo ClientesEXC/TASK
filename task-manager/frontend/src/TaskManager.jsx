@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import 'react-calendar/dist/Calendar.css';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://19.18.1.101:3001/api';
 
 const statusLabels = {
     cotizacion: 'Cotización',

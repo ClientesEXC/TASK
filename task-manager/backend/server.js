@@ -10,7 +10,7 @@ const { body, validationResult } = require('express-validator');
 // Inicializar Express PRIMERO
 const app = express();
 const PORT = process.env.PORT || 3001;
-
+const LOCAL_IP = process.env.LOCAL_IP || '19.18.1.101';
 
 
 // Configuración de CORS mejorada
@@ -21,28 +21,30 @@ const corsOptions = {
             'http://localhost:3000',
             'http://localhost:3001',
             'http://127.0.0.1:3000',
-            'http://19.18.1.101.105:3000',    // Tu IP aquí
-            'http://19.18.1.101.105:3001',    // Tu IP aquí
-            `http://19.18.1.101.105:${PORT}`, // Tu IP aquí
+            'http://127.0.0.1:3001',
+            'http://19.18.1.101:3000',
+            'http://19.18.1.101:3001',
         ];
 
-        // Permitir peticiones sin origin (como apps móviles o Postman)
+        // Permitir peticiones sin origin (Postman, apps móviles, etc.)
         if (!origin) return callback(null, true);
 
-        // Permitir cualquier IP de tu red local (más flexible)
-        if (origin.startsWith('http://19.18.1.')) {
+        // Permitir cualquier IP de tu red local 19.18.x.x
+        if (origin && origin.match(/^http:\/\/19\.18\.\d{1,3}\.\d{1,3}:\d+$/)) {
             return callback(null, true);
         }
 
         if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
+            console.log('❌ Origen bloqueado por CORS:', origin);
             callback(new Error('No permitido por CORS'));
         }
     },
     credentials: true,
     optionsSuccessStatus: 200
 };
+
 // Middleware
 app.use(cors(corsOptions));
 app.use(express.json());
@@ -1141,8 +1143,15 @@ app.post('/api/rental-items/sync-quantities', async (req, res) => {
 
 
 // Escuchar en todas las interfaces de red
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Servidor corriendo en:`);
-    console.log(`   - Local: http://localhost:${PORT}`);
-    console.log(`   - Red: http://19.18.1.101:${PORT}`); // Usa TU IP aquí
+// Escuchar en todas las interfaces de red
+const HOST = '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
+    console.log('\n🚀 ========================================');
+    console.log('✅ SERVIDOR BACKEND INICIADO');
+    console.log('========================================');
+    console.log(`📍 Local:      http://localhost:${PORT}`);
+    console.log(`🌐 Red Local:  http://19.18.1.101:${PORT}`);
+    console.log(`📊 Base Datos: PostgreSQL puerto ${process.env.DB_PORT || 5433}`);
+    console.log('========================================\n');
 });

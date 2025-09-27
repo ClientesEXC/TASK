@@ -1207,3 +1207,106 @@ textarea.form-control {
         page-break-inside: avoid;
     }
 }
+
+/* ============================================
+   ESTILOS PARA SUBIDA DE IMÁGENES
+   ============================================ */
+
+.image-preview-container {
+    position: relative;
+    width: 100%;
+    max-width: 300px;
+    margin-bottom: 15px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid #e5e7eb;
+}
+
+.image-preview {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    display: block;
+}
+
+.remove-image-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(239, 68, 68, 0.9);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    z-index: 10;
+}
+
+.remove-image-btn:hover {
+    background: #dc2626;
+    transform: scale(1.1);
+}
+
+.upload-image-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 14px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.upload-image-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.upload-image-btn:active {
+    transform: translateY(0);
+}
+
+.upload-image-btn.uploading {
+    background: #9ca3af;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.spinner-small {
+    width: 16px;
+    height: 16px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.form-help {
+    display: block;
+    margin-top: 8px;
+    color: #6b7280;
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* Mejoras al modal para la imagen */
+.modal-content .form-group:has(.image-preview-container) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
