@@ -1,4 +1,5 @@
 // task-manager/frontend/src/Rental.jsx
+import { API_URL } from './config/api';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import {
@@ -12,7 +13,7 @@ import {
 } from 'lucide-react';
 import './Rental.css';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+
 
 // Configuración de categorías y estados
 const CATEGORIES = {
@@ -439,32 +440,40 @@ function Rental({ updateTabData }) {
     };
 
     // Manejadores de formularios
+
     const handleItemSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
 
         try {
+            // Preparar los datos con la estructura correcta que espera el backend
+            const itemData = {
+                name: itemForm.name,
+                description: itemForm.description || '',
+                category: itemForm.category,
+                daily_rate: parseFloat(itemForm.rental_price) || 0,
+                weekly_rate: (parseFloat(itemForm.rental_price) || 0) * 6,
+                monthly_rate: (parseFloat(itemForm.rental_price) || 0) * 25,
+                quantity_total: parseInt(itemForm.quantity) || 1,
+                quantity_available: parseInt(itemForm.quantity) || 1,
+                status: 'disponible',
+                image_url: itemForm.image_url || ''
+            };
+
             if (editingItem) {
-                await axios.put(`${API_URL}/rental-items/${editingItem.id}`, {
-                    ...itemForm,
-                    daily_rate: itemForm.rental_price,
-                    weekly_rate: itemForm.rental_price * 6,
-                    monthly_rate: itemForm.rental_price * 25,
-                    quantity_total: itemForm.quantity,
-                    quantity_available: itemForm.quantity
-                });
+                // Al editar, mantener la cantidad disponible actual
+                const currentItem = items.find(item => item.id === editingItem.id);
+                if (currentItem) {
+                    // Calcular la diferencia para mantener la proporción correcta
+                    const rentedQuantity = currentItem.quantity_total - currentItem.quantity_available;
+                    itemData.quantity_available = Math.max(0, itemData.quantity_total - rentedQuantity);
+                }
+
+                await axios.put(`${API_URL}/rental-items/${editingItem.id}`, itemData);
                 showNotification('Artículo actualizado exitosamente');
             } else {
-                await axios.post(`${API_URL}/rental-items`, {
-                    ...itemForm,
-                    daily_rate: itemForm.rental_price,
-                    weekly_rate: itemForm.rental_price * 6,
-                    monthly_rate: itemForm.rental_price * 25,
-                    quantity: itemForm.quantity,
-                    quantity_total: itemForm.quantity,
-                    quantity_available: itemForm.quantity,
-                    status: 'disponible'
-                });
+                // Crear nuevo artículo
+                await axios.post(`${API_URL}/rental-items`, itemData);
                 showNotification('Artículo creado exitosamente');
             }
 
@@ -472,7 +481,8 @@ function Rental({ updateTabData }) {
             closeModal('item');
         } catch (error) {
             console.error('Error:', error);
-            showNotification('Error al guardar el artículo', 'error');
+            const errorMessage = error.response?.data?.error || 'Error al guardar el artículo';
+            showNotification(errorMessage, 'error');
         } finally {
             setLoading(false);
         }
@@ -483,19 +493,25 @@ function Rental({ updateTabData }) {
         setLoading(true);
 
         try {
+            // Corregir el formato de datos para el backend
             const rentalData = {
                 ...rentalForm,
-                initial_payment: rentalForm.initial_deposit
+                item_id: parseInt(rentalForm.item_id), // Asegurar que sea número
+                quantity_rented: parseInt(rentalForm.quantity_rented) || 1,
+                total_amount: parseFloat(rentalForm.total_amount) || 0,
+                initial_deposit: parseFloat(rentalForm.initial_deposit) || 0
             };
 
-            await axios.post(`${API_URL}/rentals/complete`, rentalData);
+            // Usar la ruta correcta
+            await axios.post(`${API_URL}/rentals`, rentalData); // NO uses /rentals/complete
 
             showNotification('Alquiler creado exitosamente');
             await Promise.all([fetchItems(), fetchRentals()]);
             closeModal('rental');
         } catch (error) {
             console.error('Error:', error);
-            showNotification('Error al crear alquiler', 'error');
+            const errorMessage = error.response?.data?.error || 'Error al crear alquiler';
+            showNotification(errorMessage, 'error');
         } finally {
             setLoading(false);
         }

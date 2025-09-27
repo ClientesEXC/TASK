@@ -1,3 +1,4 @@
+import { API_URL } from './config/api';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Calendar from 'react-calendar';
@@ -8,7 +9,7 @@ import {
 } from 'lucide-react';
 import 'react-calendar/dist/Calendar.css';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://19.18.1.101:3001/api';
+
 
 const statusLabels = {
     cotizacion: 'Cotización',

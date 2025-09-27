@@ -1,3 +1,4 @@
+import { API_URL } from './config/api';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
@@ -7,7 +8,6 @@ import {
 } from 'lucide-react';
 import './Home.css';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://19.18.1.101:3001/api';
 
 function Home({ switchToTab }) {
     const [taskStats, setTaskStats] = useState({
