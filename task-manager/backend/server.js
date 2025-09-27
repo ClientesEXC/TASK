@@ -15,11 +15,31 @@ const PORT = process.env.PORT || 3001;
 
 // Configuración de CORS mejorada
 const corsOptions = {
-    origin: [
-        'http://localhost:3000',          // para cuando usas el mismo PC
-        'http://127.0.0.1:3000',          // opcional
-        'http://19.18.1.101:3000'         // para otros equipos en tu red LAN
-    ],
+    origin: function (origin, callback) {
+        // Lista de orígenes permitidos
+        const allowedOrigins = [
+            'http://localhost:3000',
+            'http://localhost:3001',
+            'http://127.0.0.1:3000',
+            'http://19.18.1.101.105:3000',    // Tu IP aquí
+            'http://19.18.1.101.105:3001',    // Tu IP aquí
+            `http://19.18.1.101.105:${PORT}`, // Tu IP aquí
+        ];
+
+        // Permitir peticiones sin origin (como apps móviles o Postman)
+        if (!origin) return callback(null, true);
+
+        // Permitir cualquier IP de tu red local (más flexible)
+        if (origin.startsWith('http://19.18.1.')) {
+            return callback(null, true);
+        }
+
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('No permitido por CORS'));
+        }
+    },
     credentials: true,
     optionsSuccessStatus: 200
 };
@@ -1118,6 +1138,11 @@ app.post('/api/rental-items/sync-quantities', async (req, res) => {
     }
 });
 
+
+
+// Escuchar en todas las interfaces de red
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Servidor corriendo en http://0.0.0.0:${PORT}`);
+    console.log(`✅ Servidor corriendo en:`);
+    console.log(`   - Local: http://localhost:${PORT}`);
+    console.log(`   - Red: http://19.18.1.101:${PORT}`); // Usa TU IP aquí
 });

@@ -1,16 +1,25 @@
 // services/api.js
+import axios from 'axios';
+
+// Lee la variable de entorno o usa localhost como fallback
 const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+
+// Instancia global de axios con la URL base
+const apiClient = axios.create({
+    baseURL: API_BASE,
+    withCredentials: true, // si usas cookies/sesiones
+});
 
 export const api = {
     rentals: {
-        getAll: () => axios.get(`${API_BASE}/rentals`),
-        create: (data) => axios.post(`${API_BASE}/rentals`, data),
-        delete: (id) => axios.delete(`${API_BASE}/rentals/${id}`),
-        getStats: () => axios.get(`${API_BASE}/rentals/stats`)
+        getAll: () => apiClient.get('/rentals'),
+        create: (data) => apiClient.post('/rentals', data),
+        delete: (id) => apiClient.delete(`/rentals/${id}`),
+        getStats: () => apiClient.get('/rentals/stats')
     },
     items: {
-        getAll: () => axios.get(`${API_BASE}/rental-items`),
-        create: (data) => axios.post(`${API_BASE}/rental-items`, data),
-        delete: (id) => axios.delete(`${API_BASE}/rental-items/${id}`)
+        getAll: () => apiClient.get('/rental-items'),
+        create: (data) => apiClient.post('/rental-items', data),
+        delete: (id) => apiClient.delete(`/rental-items/${id}`)
     }
 };
