@@ -550,39 +550,63 @@ function Rental({ updateTabData }) {
         setLoading(true);
 
         try {
-            // Validar artículos (que haya al menos 1 y que cada uno tenga item_id y cantidad > 0)
-            if (
-                !rentalForm.items ||
-                rentalForm.items.length === 0 ||
-                rentalForm.items.some(it => !it.item_id || it.quantity_rented <= 0)
-            ) {
-                showNotification('Seleccione al menos un artículo válido y cantidad mayor a cero', 'error');
+            // Validación detallada
+            const validationErrors = [];
+
+            // Validar items
+            if (!rentalForm.items || rentalForm.items.length === 0) {
+                validationErrors.push('Debe agregar al menos un artículo');
+            }
+
+            // Validar cada item
+            rentalForm.items.forEach((item, index) => {
+                if (!item.item_id) {
+                    validationErrors.push(`Artículo ${index + 1}: Debe seleccionar un artículo`);
+                }
+                if (!item.quantity_rented || item.quantity_rented <= 0) {
+                    validationErrors.push(`Artículo ${index + 1}: La cantidad debe ser mayor a 0`);
+                }
+            });
+
+            // Validar datos del cliente
+            if (!rentalForm.customer_name?.trim()) {
+                validationErrors.push('El nombre del cliente es obligatorio');
+            }
+            if (!rentalForm.customer_id_number?.trim()) {
+                validationErrors.push('La cédula/RUC es obligatoria');
+            }
+            if (!rentalForm.customer_phone?.trim()) {
+                validationErrors.push('El teléfono es obligatorio');
+            }
+
+            // Validar fechas
+            if (!rentalForm.rental_start) {
+                validationErrors.push('La fecha de inicio es obligatoria');
+            }
+            if (!rentalForm.rental_end) {
+                validationErrors.push('La fecha de devolución es obligatoria');
+            }
+            if (rentalForm.rental_start && rentalForm.rental_end) {
+                const startDate = new Date(rentalForm.rental_start);
+                const endDate = new Date(rentalForm.rental_end);
+
+                if (endDate <= startDate) {
+                    validationErrors.push('La fecha de devolución debe ser posterior a la fecha de inicio');
+                }
+            }
+
+            // Si hay errores, mostrarlos y detener
+            if (validationErrors.length > 0) {
+                showNotification(validationErrors.join('\n'), 'error');
                 setLoading(false);
                 return;
             }
 
-            // Validar datos de cliente y fechas
-            if (!rentalForm.customer_name.trim() || !rentalForm.customer_id_number.trim() || !rentalForm.customer_phone.trim()) {
-                showNotification('Complete los datos obligatorios del cliente', 'error');
-                setLoading(false);
-                return;
-            }
-            if (!rentalForm.rental_start || !rentalForm.rental_end) {
-                showNotification('Seleccione las fechas de inicio y fin del alquiler', 'error');
-                setLoading(false);
-                return;
-            }
-            if (new Date(rentalForm.rental_end) <= new Date(rentalForm.rental_start)) {
-                showNotification('La fecha de devolución debe ser posterior a la fecha de alquiler', 'error');
-                setLoading(false);
-                return;
-            }
-
-            // Preparar payload para enviar al backend
+            // Preparar payload limpio
             const payload = {
-                items: rentalForm.items.map(it => ({
-                    item_id: Number(it.item_id),
-                    quantity_rented: Number(it.quantity_rented)
+                items: rentalForm.items.map(item => ({
+                    item_id: parseInt(item.item_id),
+                    quantity_rented: parseInt(item.quantity_rented) || 1
                 })),
                 customer_name: rentalForm.customer_name.trim(),
                 customer_id_number: rentalForm.customer_id_number.trim(),
@@ -591,49 +615,71 @@ function Rental({ updateTabData }) {
                 customer_email: rentalForm.customer_email?.trim() || '',
                 rental_start: rentalForm.rental_start,
                 rental_end: rentalForm.rental_end,
-                deposit: Number(rentalForm.deposit) || 0,
-                has_collateral: rentalForm.has_collateral,
-                collateral_description: rentalForm.collateral_description || '',
-                notes: rentalForm.notes || ''
+                deposit: parseFloat(rentalForm.deposit) || 0,
+                has_collateral: Boolean(rentalForm.has_collateral),
+                collateral_description: rentalForm.collateral_description?.trim() || '',
+                notes: rentalForm.notes?.trim() || ''
             };
 
-            // Enviar a la ruta múltiple
+            console.log('Enviando payload:', payload); // Para debugging
+
+            // Enviar petición
             const response = await axios.post(`${API_URL}/rentals/enhanced`, payload);
 
-            // Éxito
-            showNotification('Alquiler creado exitosamente', 'success');
-            await fetchItems();
-            await fetchRentals();
+            if (response.data.success) {
+                showNotification(response.data.message || 'Alquiler creado exitosamente', 'success');
 
-            // Reset del formulario
-            setRentalForm({
-                customer_name: '',
-                customer_id_number: '',
-                customer_address: '',
-                customer_phone: '',
-                customer_email: '',
-                rental_start: new Date().toISOString().split('T')[0],
-                rental_end: '',
-                deposit: 0,
-                has_collateral: false,
-                collateral_description: '',
-                notes: '',
-                items: [{ item_id: '', quantity_rented: 1 }]
-            });
-            closeModal('rental');
+                // Recargar datos
+                await Promise.all([
+                    fetchItems(),
+                    fetchRentals()
+                ]);
+
+                // Resetear formulario
+                setRentalForm({
+                    customer_name: '',
+                    customer_id_number: '',
+                    customer_address: '',
+                    customer_phone: '',
+                    customer_email: '',
+                    rental_start: new Date().toISOString().split('T')[0],
+                    rental_end: '',
+                    deposit: 0,
+                    has_collateral: false,
+                    collateral_description: '',
+                    notes: '',
+                    items: [{ item_id: '', quantity_rented: 1 }]
+                });
+
+                closeModal('rental');
+            } else {
+                throw new Error(response.data.error || 'Error desconocido');
+            }
 
         } catch (error) {
             console.error('Error al crear alquiler:', error);
-            const message =
-                error.response?.data?.error ||
-                error.response?.data?.message ||
-                'Error al crear alquiler múltiple';
-            showNotification(message, 'error');
+
+            // Manejo de errores mejorado
+            let errorMessage = 'Error al crear el alquiler';
+
+            if (error.response) {
+                // Error del servidor
+                errorMessage = error.response.data?.error ||
+                    error.response.data?.message ||
+                    `Error del servidor: ${error.response.status}`;
+            } else if (error.request) {
+                // No hubo respuesta
+                errorMessage = 'No se pudo conectar con el servidor. Verifique su conexión.';
+            } else {
+                // Error de configuración
+                errorMessage = error.message || 'Error al procesar la solicitud';
+            }
+
+            showNotification(errorMessage, 'error');
         } finally {
             setLoading(false);
         }
     };
-
     const handleReturnSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
@@ -1413,189 +1459,281 @@ function Rental({ updateTabData }) {
             )}
 
             {/* Modal de Alquiler */}
+            {/* Modal Nuevo Alquiler */}
             {modals.rental && (
-                <div className="modal-overlay" onClick={() => closeModal('rental')}>
-                    <div className="modal-content large" onClick={e => e.stopPropagation()}>
+                <div className="modal-overlay" onClick={(e) => {
+                    if (e.target.className === 'modal-overlay') closeModal('rental');
+                }}>
+                    <div className="modal-content rental-modal">
                         <div className="modal-header">
                             <h2>Nuevo Alquiler</h2>
-                            <button className="close-btn" onClick={() => closeModal('rental')}>
+                            <button
+                                className="close-btn"
+                                onClick={() => closeModal('rental')}
+                                type="button"
+                            >
                                 <X size={24} />
                             </button>
                         </div>
 
-                        <form onSubmit={handleRentalSubmit}>
-                            {/* Bloque dinámico de artículos */}
-                            <div className="form-group">
-                                <h3>Artículos a alquilar</h3>
-                                {rentalForm.items?.map((it, idx) => (
-                                    <div key={idx} className="item-row">
-                                        {/* Selector de artículo */}
-                                        <select
-                                            value={it.item_id || ''}
-                                            onChange={(e) => updateItem(idx, 'item_id', parseInt(e.target.value))}
-                                            required
-                                        >
-                                            <option value="">Seleccione un artículo</option>
-                                            {(items || []).map(opt => (
-                                                <option key={opt.id} value={opt.id}>
-                                                    {opt.name} (disp: {opt.quantity_available})
-                                                </option>
-                                            ))}
-                                        </select>
-
-                                        {/* Cantidad */}
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            value={it.quantity_rented}
-                                            onChange={(e) => updateItem(idx, 'quantity_rented', parseInt(e.target.value))}
-                                            required
-                                        />
-
-                                        {/* Botón eliminar fila */}
-                                        <button type="button" onClick={() => removeItem(idx)}>
-                                            Eliminar
-                                        </button>
-                                    </div>
-                                ))}
-
-                                <button type="button" onClick={addItem}>+ Agregar artículo</button>
-                            </div>
-
-                            {/* Información del Cliente */}
+                        <form onSubmit={handleRentalSubmit} className="rental-form">
+                            {/* Datos del Cliente */}
                             <div className="form-section">
-                                <h3>Información del Cliente</h3>
-                                <div className="form-group">
-                                    <label>Nombre completo *</label>
-                                    <input
-                                        type="text"
-                                        className="form-control"
-                                        value={rentalForm.customer_name}
-                                        onChange={e => setRentalForm({...rentalForm, customer_name: e.target.value})}
-                                        required
-                                    />
-                                </div>
+                                <h3>Datos del Cliente</h3>
                                 <div className="form-row">
                                     <div className="form-group">
-                                        <label>Cédula de identidad *</label>
+                                        <label>Nombre Completo *</label>
                                         <input
                                             type="text"
-                                            className="form-control"
-                                            value={rentalForm.customer_id_number}
-                                            onChange={e => setRentalForm({...rentalForm, customer_id_number: e.target.value})}
+                                            value={rentalForm.customer_name}
+                                            onChange={(e) => setRentalForm({
+                                                ...rentalForm,
+                                                customer_name: e.target.value
+                                            })}
                                             required
+                                            placeholder="Ej: Juan Pérez"
                                         />
                                     </div>
+                                    <div className="form-group">
+                                        <label>Cédula/RUC *</label>
+                                        <input
+                                            type="text"
+                                            value={rentalForm.customer_id_number}
+                                            onChange={(e) => setRentalForm({
+                                                ...rentalForm,
+                                                customer_id_number: e.target.value
+                                            })}
+                                            required
+                                            placeholder="Ej: 0912345678"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="form-row">
                                     <div className="form-group">
                                         <label>Teléfono *</label>
                                         <input
                                             type="tel"
-                                            className="form-control"
                                             value={rentalForm.customer_phone}
-                                            onChange={e => setRentalForm({...rentalForm, customer_phone: e.target.value})}
+                                            onChange={(e) => setRentalForm({
+                                                ...rentalForm,
+                                                customer_phone: e.target.value
+                                            })}
                                             required
+                                            placeholder="Ej: 0991234567"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Email</label>
+                                        <input
+                                            type="email"
+                                            value={rentalForm.customer_email}
+                                            onChange={(e) => setRentalForm({
+                                                ...rentalForm,
+                                                customer_email: e.target.value
+                                            })}
+                                            placeholder="correo@ejemplo.com"
                                         />
                                     </div>
                                 </div>
+
                                 <div className="form-group">
-                                    <label>Dirección de domicilio</label>
-                                    <input
-                                        type="text"
-                                        className="form-control"
+                                    <label>Dirección</label>
+                                    <textarea
                                         value={rentalForm.customer_address}
-                                        onChange={e => setRentalForm({...rentalForm, customer_address: e.target.value})}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label>Email</label>
-                                    <input
-                                        type="email"
-                                        className="form-control"
-                                        value={rentalForm.customer_email}
-                                        onChange={e => setRentalForm({...rentalForm, customer_email: e.target.value})}
+                                        onChange={(e) => setRentalForm({
+                                            ...rentalForm,
+                                            customer_address: e.target.value
+                                        })}
+                                        rows="2"
+                                        placeholder="Dirección completa del cliente"
                                     />
                                 </div>
                             </div>
 
-                            {/* Detalles del Alquiler */}
+                            {/* Artículos a Alquilar */}
+                            <div className="form-section">
+                                <h3>Artículos a Alquilar</h3>
+
+                                {rentalForm.items.map((item, index) => (
+                                    <div key={index} className="item-row">
+                                        <div className="form-group flex-grow">
+                                            <label>Artículo *</label>
+                                            <select
+                                                value={item.item_id}
+                                                onChange={(e) => {
+                                                    const newItems = [...rentalForm.items];
+                                                    newItems[index].item_id = e.target.value;
+                                                    setRentalForm({...rentalForm, items: newItems});
+                                                }}
+                                                required
+                                            >
+                                                <option value="">Seleccionar artículo...</option>
+                                                {items
+                                                    .filter(i => i.quantity_available > 0)
+                                                    .map(i => (
+                                                        <option key={i.id} value={i.id}>
+                                                            {i.name} - Disponible: {i.quantity_available}
+                                                        </option>
+                                                    ))
+                                                }
+                                            </select>
+                                        </div>
+
+                                        <div className="form-group" style={{width: '120px'}}>
+                                            <label>Cantidad *</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max={
+                                                    item.item_id
+                                                        ? items.find(i => i.id === parseInt(item.item_id))?.quantity_available || 1
+                                                        : 999
+                                                }
+                                                value={item.quantity_rented}
+                                                onChange={(e) => {
+                                                    const newItems = [...rentalForm.items];
+                                                    newItems[index].quantity_rented = parseInt(e.target.value) || 1;
+                                                    setRentalForm({...rentalForm, items: newItems});
+                                                }}
+                                                required
+                                            />
+                                        </div>
+
+                                        {rentalForm.items.length > 1 && (
+                                            <button
+                                                type="button"
+                                                className="remove-item-btn"
+                                                onClick={() => {
+                                                    const newItems = rentalForm.items.filter((_, i) => i !== index);
+                                                    setRentalForm({...rentalForm, items: newItems});
+                                                }}
+                                            >
+                                                <Trash2 size={20} />
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+
+                                <button
+                                    type="button"
+                                    className="add-item-btn"
+                                    onClick={() => {
+                                        setRentalForm({
+                                            ...rentalForm,
+                                            items: [...rentalForm.items, { item_id: '', quantity_rented: 1 }]
+                                        });
+                                    }}
+                                >
+                                    <Plus size={20} /> Agregar otro artículo
+                                </button>
+                            </div>
+
+                            {/* Fechas y Depósito */}
                             <div className="form-section">
                                 <h3>Detalles del Alquiler</h3>
                                 <div className="form-row">
                                     <div className="form-group">
-                                        <label>Fecha de alquiler *</label>
+                                        <label>Fecha Inicio *</label>
                                         <input
                                             type="date"
-                                            className="form-control"
                                             value={rentalForm.rental_start}
-                                            onChange={e => setRentalForm({...rentalForm, rental_start: e.target.value})}
+                                            onChange={(e) => setRentalForm({
+                                                ...rentalForm,
+                                                rental_start: e.target.value
+                                            })}
                                             required
+                                            min={new Date().toISOString().split('T')[0]}
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label>Fecha de devolución *</label>
+                                        <label>Fecha Devolución *</label>
                                         <input
                                             type="date"
-                                            className="form-control"
                                             value={rentalForm.rental_end}
-                                            onChange={e => setRentalForm({...rentalForm, rental_end: e.target.value})}
-                                            min={rentalForm.rental_start}
+                                            onChange={(e) => setRentalForm({
+                                                ...rentalForm,
+                                                rental_end: e.target.value
+                                            })}
                                             required
+                                            min={rentalForm.rental_start || new Date().toISOString().split('T')[0]}
                                         />
                                     </div>
                                 </div>
-                                <div className="form-group">
-                                    <div className="checkbox-group">
+
+                                <div className="form-row">
+                                    <div className="form-group">
+                                        <label>Depósito ($)</label>
                                         <input
-                                            type="checkbox"
-                                            id="has_collateral"
-                                            checked={rentalForm.has_collateral}
-                                            onChange={e => setRentalForm({...rentalForm, has_collateral: e.target.checked})}
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={rentalForm.deposit}
+                                            onChange={(e) => setRentalForm({
+                                                ...rentalForm,
+                                                deposit: parseFloat(e.target.value) || 0
+                                            })}
+                                            placeholder="0.00"
                                         />
-                                        <label htmlFor="has_collateral">¿Dejó prenda?</label>
                                     </div>
-                                    {rentalForm.has_collateral && (
-                                        <input
-                                            type="text"
-                                            className="form-control mt-2"
-                                            placeholder="Descripción de la prenda"
+                                    <div className="form-group">
+                                        <label className="checkbox-label">
+                                            <input
+                                                type="checkbox"
+                                                checked={rentalForm.has_collateral}
+                                                onChange={(e) => setRentalForm({
+                                                    ...rentalForm,
+                                                    has_collateral: e.target.checked,
+                                                    collateral_description: e.target.checked ? rentalForm.collateral_description : ''
+                                                })}
+                                            />
+                                            <span>Tiene Garantía</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {rentalForm.has_collateral && (
+                                    <div className="form-group">
+                                        <label>Descripción de la Garantía</label>
+                                        <textarea
                                             value={rentalForm.collateral_description}
-                                            onChange={e => setRentalForm({...rentalForm, collateral_description: e.target.value})}
+                                            onChange={(e) => setRentalForm({
+                                                ...rentalForm,
+                                                collateral_description: e.target.value
+                                            })}
+                                            rows="2"
+                                            placeholder="Describa la garantía dejada por el cliente"
                                         />
-                                    )}
-                                </div>
+                                    </div>
+                                )}
+
                                 <div className="form-group">
-                                    <label>Depósito inicial</label>
-                                    <input
-                                        type="number"
-                                        className="form-control"
-                                        value={rentalForm.deposit}
-                                        onChange={e => setRentalForm({...rentalForm, deposit: parseFloat(e.target.value) || 0})}
-                                        step="0.01"
-                                        min="0"
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label>Notas adicionales</label>
+                                    <label>Notas Adicionales</label>
                                     <textarea
-                                        className="form-control"
                                         value={rentalForm.notes}
-                                        onChange={e => setRentalForm({...rentalForm, notes: e.target.value})}
+                                        onChange={(e) => setRentalForm({
+                                            ...rentalForm,
+                                            notes: e.target.value
+                                        })}
                                         rows="3"
+                                        placeholder="Observaciones o condiciones especiales"
                                     />
                                 </div>
                             </div>
 
-                            <div className="form-actions">
+                            {/* Botones de Acción */}
+                            <div className="modal-footer">
                                 <button
                                     type="button"
-                                    className="btn btn-secondary"
+                                    className="btn-secondary"
                                     onClick={() => closeModal('rental')}
+                                    disabled={loading}
                                 >
                                     Cancelar
                                 </button>
                                 <button
                                     type="submit"
-                                    className="btn btn-primary"
+                                    className="btn-primary"
                                     disabled={loading}
                                 >
                                     {loading ? 'Creando...' : 'Crear Alquiler'}
@@ -1852,5 +1990,32 @@ function Rental({ updateTabData }) {
         </div>
     );
 }
+axios.interceptors.request.use(
+    config => {
+        console.log('Request:', config.method.toUpperCase(), config.url);
+        return config;
+    },
+    error => {
+        console.error('Request Error:', error);
+        return Promise.reject(error);
+    }
+);
+
+axios.interceptors.response.use(
+    response => {
+        console.log('Response:', response.status, response.config.url);
+        return response;
+    },
+    error => {
+        if (error.response) {
+            console.error('Response Error:', error.response.status, error.response.data);
+        } else if (error.request) {
+            console.error('No Response:', error.request);
+        } else {
+            console.error('Error:', error.message);
+        }
+        return Promise.reject(error);
+    }
+);
 
 export default Rental;
