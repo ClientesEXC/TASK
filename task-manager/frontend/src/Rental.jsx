@@ -98,7 +98,7 @@ function Rental({ updateTabData }) {
 
     // Estado del formulario de alquiler
     const [rentalForm, setRentalForm] = useState({
-        item_id: '',
+
         customer_name: '',
         customer_id_number: '',
         customer_address: '',
@@ -111,8 +111,56 @@ function Rental({ updateTabData }) {
         collateral_description: '',
         total_amount: 0,
         initial_deposit: 0,
-        notes: ''
+        notes: '',
+        items: [{ item_id: '', quantity_rented: 1 }]
     });
+
+    const addItem = () => {
+        setRentalForm(f => ({
+            ...f,
+            items: [...f.items, { item_id: '', quantity_rented: 1 }]
+        }));
+    };
+
+    const updateItem = (index, field, value) => {
+        const items = [...rentalForm.items];
+        items[index][field] = value;
+        setRentalForm({ ...rentalForm, items });
+    };
+
+    const removeItem = (index) => {
+        setRentalForm(f => ({
+            ...f,
+            items: f.items.filter((_, i) => i !== index)
+        }));
+    };
+
+
+    const handleSubmit = async () => {
+        try {
+            await axios.post(`${API_URL}/rentals/enhanced`, rentalForm);
+            alert("✅ Alquiler creado correctamente");
+            // Reset
+            setRentalForm({
+                customer_name: '',
+                customer_id_number: '',
+                customer_address: '',
+                customer_phone: '',
+                customer_email: '',
+                rental_start: '',
+                rental_end: '',
+                deposit: 0,
+                has_collateral: false,
+                collateral_description: '',
+                notes: '',
+                items: [{ item_id: '', quantity_rented: 1 }]
+            });
+        } catch (error) {
+            console.error(error);
+            alert("❌ Error al crear alquiler");
+        }
+    };
+
 
     // Estado del formulario de devolución
     const [returnForm, setReturnForm] = useState({
@@ -212,12 +260,20 @@ function Rental({ updateTabData }) {
     };
 
     const fetchPayments = async (rentalId) => {
+        if (!rentalId) {
+            console.error('No rental ID provided');
+            setPayments([]); // Establecer array vacío si no hay ID
+            return;
+        }
+
         try {
             const response = await axios.get(`${API_URL}/rentals/${rentalId}/payments`);
-            setPayments(response.data || []);
+            // Asegurar que siempre sea un array
+            setPayments(Array.isArray(response.data) ? response.data : []);
         } catch (error) {
             console.error('Error fetching payments:', error);
-            setPayments([]);
+            setPayments([]); // En caso de error, establecer array vacío
+            showNotification('Error al cargar los abonos', 'error');
         }
     };
 
@@ -392,8 +448,7 @@ function Rental({ updateTabData }) {
             setSelectedItem(data);
             setRentalForm(prev => ({
                 ...prev,
-                item_id: data.id,
-                quantity_rented: 1
+                items: [{ item_id: data.id, quantity_rented: 1 }]
             }));
         } else if (modalName === 'return' && data) {
             setSelectedRental(data);
@@ -488,30 +543,92 @@ function Rental({ updateTabData }) {
         }
     };
 
+    // Busca la función handleRentalSubmit en tu Rental.jsx y reemplázala con esta versión corregida:
+
     const handleRentalSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
 
         try {
-            // Corregir el formato de datos para el backend
-            const rentalData = {
-                ...rentalForm,
-                item_id: parseInt(rentalForm.item_id), // Asegurar que sea número
-                quantity_rented: parseInt(rentalForm.quantity_rented) || 1,
-                total_amount: parseFloat(rentalForm.total_amount) || 0,
-                initial_deposit: parseFloat(rentalForm.initial_deposit) || 0
+            // Validar artículos (que haya al menos 1 y que cada uno tenga item_id y cantidad > 0)
+            if (
+                !rentalForm.items ||
+                rentalForm.items.length === 0 ||
+                rentalForm.items.some(it => !it.item_id || it.quantity_rented <= 0)
+            ) {
+                showNotification('Seleccione al menos un artículo válido y cantidad mayor a cero', 'error');
+                setLoading(false);
+                return;
+            }
+
+            // Validar datos de cliente y fechas
+            if (!rentalForm.customer_name.trim() || !rentalForm.customer_id_number.trim() || !rentalForm.customer_phone.trim()) {
+                showNotification('Complete los datos obligatorios del cliente', 'error');
+                setLoading(false);
+                return;
+            }
+            if (!rentalForm.rental_start || !rentalForm.rental_end) {
+                showNotification('Seleccione las fechas de inicio y fin del alquiler', 'error');
+                setLoading(false);
+                return;
+            }
+            if (new Date(rentalForm.rental_end) <= new Date(rentalForm.rental_start)) {
+                showNotification('La fecha de devolución debe ser posterior a la fecha de alquiler', 'error');
+                setLoading(false);
+                return;
+            }
+
+            // Preparar payload para enviar al backend
+            const payload = {
+                items: rentalForm.items.map(it => ({
+                    item_id: Number(it.item_id),
+                    quantity_rented: Number(it.quantity_rented)
+                })),
+                customer_name: rentalForm.customer_name.trim(),
+                customer_id_number: rentalForm.customer_id_number.trim(),
+                customer_phone: rentalForm.customer_phone.trim(),
+                customer_address: rentalForm.customer_address?.trim() || '',
+                customer_email: rentalForm.customer_email?.trim() || '',
+                rental_start: rentalForm.rental_start,
+                rental_end: rentalForm.rental_end,
+                deposit: Number(rentalForm.deposit) || 0,
+                has_collateral: rentalForm.has_collateral,
+                collateral_description: rentalForm.collateral_description || '',
+                notes: rentalForm.notes || ''
             };
 
-            // Usar la ruta correcta
-            await axios.post(`${API_URL}/rentals`, rentalData); // NO uses /rentals/complete
+            // Enviar a la ruta múltiple
+            const response = await axios.post(`${API_URL}/rentals/enhanced`, payload);
 
-            showNotification('Alquiler creado exitosamente');
-            await Promise.all([fetchItems(), fetchRentals()]);
+            // Éxito
+            showNotification('Alquiler creado exitosamente', 'success');
+            await fetchItems();
+            await fetchRentals();
+
+            // Reset del formulario
+            setRentalForm({
+                customer_name: '',
+                customer_id_number: '',
+                customer_address: '',
+                customer_phone: '',
+                customer_email: '',
+                rental_start: new Date().toISOString().split('T')[0],
+                rental_end: '',
+                deposit: 0,
+                has_collateral: false,
+                collateral_description: '',
+                notes: '',
+                items: [{ item_id: '', quantity_rented: 1 }]
+            });
             closeModal('rental');
+
         } catch (error) {
-            console.error('Error:', error);
-            const errorMessage = error.response?.data?.error || 'Error al crear alquiler';
-            showNotification(errorMessage, 'error');
+            console.error('Error al crear alquiler:', error);
+            const message =
+                error.response?.data?.error ||
+                error.response?.data?.message ||
+                'Error al crear alquiler múltiple';
+            showNotification(message, 'error');
         } finally {
             setLoading(false);
         }
@@ -549,37 +666,122 @@ function Rental({ updateTabData }) {
 
     const handlePaymentSubmit = async (e) => {
         e.preventDefault();
+
+        if (!selectedRental || !selectedRental.id) {
+            showNotification('Error: No se ha seleccionado un alquiler', 'error');
+            return;
+        }
+
         setLoading(true);
 
         try {
-            await axios.post(`${API_URL}/rentals/${selectedRental.id}/payments`, paymentForm);
+            const response = await axios.post(
+                `${API_URL}/rentals/${selectedRental.id}/payments`,
+                paymentForm
+            );
 
-            showNotification('Abono registrado exitosamente');
+            showNotification('Abono registrado exitosamente', 'success');
+
+            // Recargar los pagos
             await fetchPayments(selectedRental.id);
-            setPaymentForm({ amount: 0, payment_method: 'efectivo', notes: '' });
+
+            // Limpiar el formulario
+            setPaymentForm({
+                amount: 0,
+                payment_method: 'efectivo',
+                notes: ''
+            });
+
+            // Actualizar la lista de alquileres
+            await fetchRentals();
+
         } catch (error) {
             console.error('Error:', error);
-            showNotification('Error al registrar abono', 'error');
+            const errorMessage = error.response?.data?.error || 'Error al registrar abono';
+            showNotification(errorMessage, 'error');
         } finally {
             setLoading(false);
         }
     };
 
     const handleDeleteItem = async (id) => {
-        if (!window.confirm('¿Está seguro de eliminar este artículo?')) return;
+        // Buscar el artículo para mostrar su nombre en la confirmación
+        const item = items.find(i => i.id === id);
+        const itemName = item ? item.name : 'este artículo';
+
+        if (!window.confirm(`¿Está seguro de eliminar "${itemName}"?\n\nEsta acción no se puede deshacer.`)) {
+            return;
+        }
 
         setLoading(true);
+
         try {
-            await axios.delete(`${API_URL}/rental-items/${id}`);
-            showNotification('Artículo eliminado exitosamente');
+            const response = await axios.delete(`${API_URL}/rental-items/${id}`);
+
+            // Mostrar mensaje de éxito con detalles si están disponibles
+            if (response.data && response.data.stats) {
+                const { payments_deleted, rentals_deleted } = response.data.stats;
+                let message = 'Artículo eliminado exitosamente';
+
+                if (rentals_deleted > 0 || payments_deleted > 0) {
+                    message += `. Se eliminaron ${rentals_deleted} alquiler(es) histórico(s) y ${payments_deleted} pago(s) asociado(s).`;
+                }
+
+                showNotification(message, 'success');
+            } else {
+                showNotification('Artículo eliminado exitosamente', 'success');
+            }
+
+            // Recargar la lista de artículos
             await fetchItems();
+
         } catch (error) {
-            console.error('Error:', error);
-            showNotification('Error al eliminar artículo', 'error');
+            console.error('Error al eliminar:', error);
+
+            // Manejar diferentes tipos de errores
+            let errorMessage = 'Error al eliminar el artículo';
+
+            if (error.response) {
+                if (error.response.status === 400) {
+                    // Error de validación (artículo tiene alquileres activos)
+                    errorMessage = error.response.data.error || 'No se puede eliminar: El artículo está en uso';
+                } else if (error.response.status === 404) {
+                    errorMessage = 'El artículo no fue encontrado';
+                } else if (error.response.status === 500) {
+                    // Error del servidor
+                    errorMessage = error.response.data.error || 'Error interno del servidor';
+
+                    // Si hay detalles adicionales en desarrollo
+                    if (error.response.data.details) {
+                        console.error('Detalles del error:', error.response.data.details);
+                    }
+                }
+            } else if (error.request) {
+                errorMessage = 'No se pudo conectar con el servidor';
+            }
+
+            // Mostrar notificación de error
+            showNotification(errorMessage, 'error');
+
+            // Si el error indica que hay alquileres activos, ofrecer más información
+            if (errorMessage.includes('alquiler') && errorMessage.includes('activo')) {
+                // Opcionalmente, mostrar una lista de los alquileres activos
+                const activeRentalsForItem = rentals.filter(
+                    r => r.item_id === id && r.status === 'activo'
+                );
+
+                if (activeRentalsForItem.length > 0) {
+                    console.log('Alquileres activos que impiden la eliminación:');
+                    activeRentalsForItem.forEach(rental => {
+                        console.log(`- Cliente: ${rental.customer_name}, Fecha fin: ${formatDate(rental.rental_end)}`);
+                    });
+                }
+            }
         } finally {
             setLoading(false);
         }
     };
+
 
     const handleDeletePayment = async (paymentId) => {
         if (!window.confirm('¿Está seguro de eliminar este abono?')) return;
@@ -1222,41 +1424,57 @@ function Rental({ updateTabData }) {
                         </div>
 
                         <form onSubmit={handleRentalSubmit}>
+                            {/* Bloque dinámico de artículos */}
                             <div className="form-group">
-                                <label>Artículo a alquilar *</label>
-                                <select
-                                    className="form-control"
-                                    value={rentalForm.item_id}
-                                    onChange={(e) => {
-                                        const item = items.find(i => i.id === parseInt(e.target.value));
-                                        setSelectedItem(item);
-                                        setRentalForm({...rentalForm, item_id: e.target.value});
-                                    }}
-                                    required
-                                >
-                                    <option value="">Seleccione un artículo...</option>
-                                    {items.filter(item => item.quantity_available > 0).map(item => (
-                                        <option key={item.id} value={item.id}>
-                                            {item.name} ({item.quantity_available} disponibles)
-                                        </option>
-                                    ))}
-                                </select>
+                                <h3>Artículos a alquilar</h3>
+                                {rentalForm.items?.map((it, idx) => (
+                                    <div key={idx} className="item-row">
+                                        {/* Selector de artículo */}
+                                        <select
+                                            value={it.item_id || ''}
+                                            onChange={(e) => updateItem(idx, 'item_id', parseInt(e.target.value))}
+                                            required
+                                        >
+                                            <option value="">Seleccione un artículo</option>
+                                            {(items || []).map(opt => (
+                                                <option key={opt.id} value={opt.id}>
+                                                    {opt.name} (disp: {opt.quantity_available})
+                                                </option>
+                                            ))}
+                                        </select>
+
+                                        {/* Cantidad */}
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            value={it.quantity_rented}
+                                            onChange={(e) => updateItem(idx, 'quantity_rented', parseInt(e.target.value))}
+                                            required
+                                        />
+
+                                        {/* Botón eliminar fila */}
+                                        <button type="button" onClick={() => removeItem(idx)}>
+                                            Eliminar
+                                        </button>
+                                    </div>
+                                ))}
+
+                                <button type="button" onClick={addItem}>+ Agregar artículo</button>
                             </div>
 
+                            {/* Información del Cliente */}
                             <div className="form-section">
                                 <h3>Información del Cliente</h3>
-
                                 <div className="form-group">
                                     <label>Nombre completo *</label>
                                     <input
                                         type="text"
                                         className="form-control"
                                         value={rentalForm.customer_name}
-                                        onChange={(e) => setRentalForm({...rentalForm, customer_name: e.target.value})}
+                                        onChange={e => setRentalForm({...rentalForm, customer_name: e.target.value})}
                                         required
                                     />
                                 </div>
-
                                 <div className="form-row">
                                     <div className="form-group">
                                         <label>Cédula de identidad *</label>
@@ -1264,47 +1482,44 @@ function Rental({ updateTabData }) {
                                             type="text"
                                             className="form-control"
                                             value={rentalForm.customer_id_number}
-                                            onChange={(e) => setRentalForm({...rentalForm, customer_id_number: e.target.value})}
+                                            onChange={e => setRentalForm({...rentalForm, customer_id_number: e.target.value})}
                                             required
                                         />
                                     </div>
-
                                     <div className="form-group">
                                         <label>Teléfono *</label>
                                         <input
                                             type="tel"
                                             className="form-control"
                                             value={rentalForm.customer_phone}
-                                            onChange={(e) => setRentalForm({...rentalForm, customer_phone: e.target.value})}
+                                            onChange={e => setRentalForm({...rentalForm, customer_phone: e.target.value})}
                                             required
                                         />
                                     </div>
                                 </div>
-
                                 <div className="form-group">
                                     <label>Dirección de domicilio</label>
                                     <input
                                         type="text"
                                         className="form-control"
                                         value={rentalForm.customer_address}
-                                        onChange={(e) => setRentalForm({...rentalForm, customer_address: e.target.value})}
+                                        onChange={e => setRentalForm({...rentalForm, customer_address: e.target.value})}
                                     />
                                 </div>
-
                                 <div className="form-group">
                                     <label>Email</label>
                                     <input
                                         type="email"
                                         className="form-control"
                                         value={rentalForm.customer_email}
-                                        onChange={(e) => setRentalForm({...rentalForm, customer_email: e.target.value})}
+                                        onChange={e => setRentalForm({...rentalForm, customer_email: e.target.value})}
                                     />
                                 </div>
                             </div>
 
+                            {/* Detalles del Alquiler */}
                             <div className="form-section">
                                 <h3>Detalles del Alquiler</h3>
-
                                 <div className="form-row">
                                     <div className="form-group">
                                         <label>Fecha de alquiler *</label>
@@ -1312,59 +1527,29 @@ function Rental({ updateTabData }) {
                                             type="date"
                                             className="form-control"
                                             value={rentalForm.rental_start}
-                                            onChange={(e) => setRentalForm({...rentalForm, rental_start: e.target.value})}
+                                            onChange={e => setRentalForm({...rentalForm, rental_start: e.target.value})}
                                             required
                                         />
                                     </div>
-
                                     <div className="form-group">
                                         <label>Fecha de devolución *</label>
                                         <input
                                             type="date"
                                             className="form-control"
                                             value={rentalForm.rental_end}
-                                            onChange={(e) => setRentalForm({...rentalForm, rental_end: e.target.value})}
+                                            onChange={e => setRentalForm({...rentalForm, rental_end: e.target.value})}
                                             min={rentalForm.rental_start}
                                             required
                                         />
                                     </div>
                                 </div>
-
-                                <div className="form-row">
-                                    <div className="form-group">
-                                        <label>Cantidad</label>
-                                        <input
-                                            type="number"
-                                            className="form-control"
-                                            value={rentalForm.quantity_rented}
-                                            onChange={(e) => setRentalForm({...rentalForm, quantity_rented: parseInt(e.target.value)})}
-                                            min="1"
-                                            max={selectedItem?.quantity_available || 1}
-                                            required
-                                        />
-                                    </div>
-
-                                    <div className="form-group">
-                                        <label>Costo total</label>
-                                        <input
-                                            type="number"
-                                            className="form-control"
-                                            value={rentalForm.total_amount}
-                                            onChange={(e) => setRentalForm({...rentalForm, total_amount: parseFloat(e.target.value)})}
-                                            step="0.01"
-                                            min="0"
-                                            required
-                                        />
-                                    </div>
-                                </div>
-
                                 <div className="form-group">
                                     <div className="checkbox-group">
                                         <input
                                             type="checkbox"
                                             id="has_collateral"
                                             checked={rentalForm.has_collateral}
-                                            onChange={(e) => setRentalForm({...rentalForm, has_collateral: e.target.checked})}
+                                            onChange={e => setRentalForm({...rentalForm, has_collateral: e.target.checked})}
                                         />
                                         <label htmlFor="has_collateral">¿Dejó prenda?</label>
                                     </div>
@@ -1374,29 +1559,27 @@ function Rental({ updateTabData }) {
                                             className="form-control mt-2"
                                             placeholder="Descripción de la prenda"
                                             value={rentalForm.collateral_description}
-                                            onChange={(e) => setRentalForm({...rentalForm, collateral_description: e.target.value})}
+                                            onChange={e => setRentalForm({...rentalForm, collateral_description: e.target.value})}
                                         />
                                     )}
                                 </div>
-
                                 <div className="form-group">
                                     <label>Depósito inicial</label>
                                     <input
                                         type="number"
                                         className="form-control"
-                                        value={rentalForm.initial_deposit}
-                                        onChange={(e) => setRentalForm({...rentalForm, initial_deposit: parseFloat(e.target.value)})}
+                                        value={rentalForm.deposit}
+                                        onChange={e => setRentalForm({...rentalForm, deposit: parseFloat(e.target.value) || 0})}
                                         step="0.01"
                                         min="0"
                                     />
                                 </div>
-
                                 <div className="form-group">
                                     <label>Notas adicionales</label>
                                     <textarea
                                         className="form-control"
                                         value={rentalForm.notes}
-                                        onChange={(e) => setRentalForm({...rentalForm, notes: e.target.value})}
+                                        onChange={e => setRentalForm({...rentalForm, notes: e.target.value})}
                                         rows="3"
                                     />
                                 </div>
@@ -1422,6 +1605,7 @@ function Rental({ updateTabData }) {
                     </div>
                 </div>
             )}
+
 
             {/* Modal de Devolución */}
             {modals.return && selectedRental && (
@@ -1528,91 +1712,140 @@ function Rental({ updateTabData }) {
                             </button>
                         </div>
 
-                        <div className="rental-summary">
+                        <div className="rental-info">
                             <h3>{selectedRental.item_name}</h3>
                             <p>Cliente: {selectedRental.customer_name}</p>
+                            <p>Total del alquiler: ${selectedRental.total_amount || 0}</p>
                         </div>
 
-                        <form onSubmit={handlePaymentSubmit}>
-                            <h3>Registrar nuevo abono</h3>
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>Monto</label>
-                                    <input
-                                        type="number"
-                                        className="form-control"
-                                        value={paymentForm.amount}
-                                        onChange={(e) => setPaymentForm({...paymentForm, amount: parseFloat(e.target.value)})}
-                                        step="0.01"
-                                        min="0.01"
-                                        required
-                                    />
-                                </div>
-
-                                <div className="form-group">
-                                    <label>Método de pago</label>
-                                    <select
-                                        className="form-control"
-                                        value={paymentForm.payment_method}
-                                        onChange={(e) => setPaymentForm({...paymentForm, payment_method: e.target.value})}
-                                    >
-                                        <option value="efectivo">Efectivo</option>
-                                        <option value="transferencia">Transferencia</option>
-                                        <option value="tarjeta">Tarjeta</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <button type="submit" className="btn btn-primary" disabled={loading}>
-                                {loading ? 'Registrando...' : 'Agregar Abono'}
-                            </button>
-                        </form>
-
-                        <div className="payments-history">
-                            <h3>Historial de abonos</h3>
-                            {payments.length > 0 ? (
-                                <div className="payments-list">
+                        {/* Lista de abonos existentes - CON VALIDACIÓN */}
+                        <div className="payments-list">
+                            <h4>Abonos realizados</h4>
+                            {Array.isArray(payments) && payments.length > 0 ? (
+                                <table className="payments-table">
+                                    <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Monto</th>
+                                        <th>Método</th>
+                                        <th>Notas</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody>
                                     {payments.map(payment => (
-                                        <div key={payment.id} className="payment-item">
-                                            <div>
-                                                <div className="payment-date">{formatDate(payment.payment_date)}</div>
-                                                <div className="payment-method">{payment.payment_method}</div>
-                                            </div>
-                                            <div className="payment-amount">
-                                                ${payment.amount}
-                                                <button
-                                                    className="btn-icon"
-                                                    onClick={() => handleDeletePayment(payment.id)}
-                                                >
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            </div>
-                                        </div>
+                                        <tr key={payment.id}>
+                                            <td>{formatDate(payment.payment_date)}</td>
+                                            <td>${payment.amount}</td>
+                                            <td>{payment.payment_method}</td>
+                                            <td>{payment.notes || '-'}</td>
+                                        </tr>
                                     ))}
-                                </div>
+                                    </tbody>
+                                </table>
                             ) : (
-                                <p className="no-payments">No hay abonos registrados</p>
+                                <p className="text-muted">No hay abonos registrados</p>
                             )}
+                        </div>
 
-                            <div className="payment-summary">
-                                <div className="summary-item">
-                                    <span>Total:</span>
-                                    <span className="amount">${selectedRental.total_amount}</span>
-                                </div>
-                                <div className="summary-item">
-                                    <span>Abonado:</span>
-                                    <span className="amount text-green">
-                                        ${payments.reduce((sum, p) => sum + p.amount, 0).toFixed(2)}
-                                    </span>
-                                </div>
-                                <div className="summary-item total">
-                                    <span>Saldo:</span>
-                                    <span className="amount text-orange">
-                                        ${(selectedRental.total_amount - payments.reduce((sum, p) => sum + p.amount, 0)).toFixed(2)}
-                                    </span>
-                                </div>
+                        {/* Resumen de pagos - CON VALIDACIÓN */}
+                        <div className="payment-summary">
+                            <div className="summary-item">
+                                <span>Total del alquiler:</span>
+                                <span className="amount">${selectedRental.total_amount || 0}</span>
+                            </div>
+                            <div className="summary-item">
+                                <span>Total abonado:</span>
+                                <span className="amount">
+                        ${Array.isArray(payments)
+                                    ? payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0).toFixed(2)
+                                    : '0.00'
+                                }
+                    </span>
+                            </div>
+                            <div className="summary-item total">
+                                <span>Saldo pendiente:</span>
+                                <span className="amount">
+                        ${(
+                                    (parseFloat(selectedRental.total_amount) || 0) -
+                                    (Array.isArray(payments)
+                                        ? payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+                                        : 0)
+                                ).toFixed(2)}
+                    </span>
                             </div>
                         </div>
+
+                        {/* Formulario para nuevo abono */}
+                        <form onSubmit={handlePaymentSubmit} className="payment-form">
+                            <h4>Registrar nuevo abono</h4>
+
+                            <div className="form-group">
+                                <label>Monto del abono</label>
+                                <input
+                                    type="number"
+                                    className="form-control"
+                                    value={paymentForm.amount}
+                                    onChange={(e) => setPaymentForm({
+                                        ...paymentForm,
+                                        amount: parseFloat(e.target.value) || 0
+                                    })}
+                                    step="0.01"
+                                    min="0.01"
+                                    max={(parseFloat(selectedRental.total_amount) || 0) -
+                                        (Array.isArray(payments)
+                                            ? payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0)
+                                            : 0)}
+                                    required
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Método de pago</label>
+                                <select
+                                    className="form-control"
+                                    value={paymentForm.payment_method}
+                                    onChange={(e) => setPaymentForm({
+                                        ...paymentForm,
+                                        payment_method: e.target.value
+                                    })}
+                                >
+                                    <option value="efectivo">Efectivo</option>
+                                    <option value="transferencia">Transferencia</option>
+                                    <option value="tarjeta">Tarjeta</option>
+                                    <option value="otro">Otro</option>
+                                </select>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Notas (opcional)</label>
+                                <textarea
+                                    className="form-control"
+                                    value={paymentForm.notes}
+                                    onChange={(e) => setPaymentForm({
+                                        ...paymentForm,
+                                        notes: e.target.value
+                                    })}
+                                    rows="2"
+                                />
+                            </div>
+
+                            <div className="form-actions">
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={() => closeModal('payment')}
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="btn btn-primary"
+                                    disabled={loading || !paymentForm.amount}
+                                >
+                                    {loading ? 'Registrando...' : 'Registrar Abono'}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
