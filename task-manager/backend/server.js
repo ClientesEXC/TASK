@@ -6,6 +6,7 @@ const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
 const { body, validationResult } = require('express-validator');
+const { optionalAuth, DEFAULT_USER_ID } = require('./middleware/auth');
 
 // Inicializar Express PRIMERO
 const app = express();
@@ -47,6 +48,8 @@ const corsOptions = {
 
 // Middleware
 app.use(cors(corsOptions));
+app.use(optionalAuth);
+
 app.use(express.json());
 
 
@@ -98,7 +101,23 @@ app.post('/api/upload/image', upload.single('image'), (req, res) => {
     res.json({ url });
 });
 
+// CONFIGURACIÓN DE USUARIO POR DEFECTO
+// ===========================================
 
+
+// Middleware temporal para asignar usuario por defecto
+const assignDefaultUser = (req, res, next) => {
+    // Por ahora, siempre usar usuario sistema
+    req.user = {
+        id: DEFAULT_USER_ID,
+        name: 'Sistema',
+        email: 'sistema@taskmanager.com'
+    };
+    next();
+};
+
+// Aplicar a todas las rutas
+app.use(assignDefaultUser);
 
 // Rutas
 
@@ -249,44 +268,158 @@ app.get('/api/tasks/:id', async (req, res) => {
 // Crear nueva tarea
 app.post('/api/tasks', async (req, res) => {
     const client = await pool.connect();
+
     try {
         await client.query('BEGIN');
 
-        const { title, client_name, price, status, description, due_date, initial_payment } = req.body;
+        const {
+            title,
+            client_name,
+            price = 0,
+            status = 'cotizacion',
+            description = '',
+            due_date,
+            initial_payment
+        } = req.body;
 
-        // Si el estado es 'entregado', establecer delivered_date
-        const deliveredDate = status === 'entregado' ? new Date() : null;
+        // Validación robusta
+        const errors = [];
 
-        // Crear tarea
-        const taskResult = await client.query(
-            `INSERT INTO tasks (title, client_name, price, status, description, due_date, delivered_date)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             RETURNING *`,
-            [title, client_name, price || 0, status, description, due_date, deliveredDate]
-        );
+        if (!title || title.trim() === '') {
+            errors.push('El título es requerido');
+        }
 
-        const task = taskResult.rows[0];
+        if (!client_name || client_name.trim() === '') {
+            errors.push('El nombre del cliente es requerido');
+        }
 
-        // Si hay un abono inicial, crearlo
+        if (price < 0) {
+            errors.push('El precio no puede ser negativo');
+        }
+
+        const validStatuses = ['cotizacion', 'en_proceso', 'terminado', 'entregado'];
+        if (!validStatuses.includes(status)) {
+            errors.push(`Estado inválido. Debe ser uno de: ${validStatuses.join(', ')}`);
+        }
+
+        if (errors.length > 0) {
+            return res.status(400).json({
+                error: 'Validación fallida',
+                errors: errors
+            });
+        }
+
+        // IMPORTANTE: Usar el usuario del request o el por defecto
+        const userId = req.user?.id || DEFAULT_USER_ID;
+
+        console.log('📝 Creando tarea con usuario ID:', userId);
+
+        // Query de inserción CON created_by
+        const taskQuery = `
+            INSERT INTO tasks (
+                title, 
+                client_name, 
+                price, 
+                status, 
+                description, 
+                due_date,
+                created_by,
+                created_at,
+                updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) 
+            RETURNING *
+        `;
+
+        const taskValues = [
+            title.trim(),
+            client_name.trim(),
+            price,
+            status,
+            description.trim(),
+            due_date,
+            userId // SIEMPRE tendrá un valor
+        ];
+
+        console.log('🔍 Valores a insertar:', taskValues);
+
+        const taskResult = await client.query(taskQuery, taskValues);
+        const newTask = taskResult.rows[0];
+
+        // Si hay un abono inicial, insertarlo
         if (initial_payment && initial_payment.amount > 0) {
-            await client.query(
-                `INSERT INTO payments (task_id, amount, payment_date, notes)
-                 VALUES ($1, $2, $3, $4)`,
-                [task.id, initial_payment.amount, initial_payment.date || new Date(), initial_payment.notes || 'Abono inicial']
-            );
+            const paymentQuery = `
+                INSERT INTO payments (
+                    task_id, 
+                    amount, 
+                    payment_date, 
+                    notes,
+                    created_by
+                ) VALUES ($1, $2, $3, $4, $5) 
+                RETURNING *
+            `;
+
+            const paymentValues = [
+                newTask.id,
+                initial_payment.amount,
+                initial_payment.payment_date || new Date(),
+                initial_payment.notes || 'Abono inicial',
+                userId
+            ];
+
+            const paymentResult = await client.query(paymentQuery, paymentValues);
+            newTask.initial_payment = paymentResult.rows[0];
         }
 
         await client.query('COMMIT');
-        res.status(201).json(task);
+
+        console.log(`✅ Tarea creada exitosamente: ID ${newTask.id} - ${title}`);
+
+        // Retornar con información del usuario
+        const responseQuery = `
+            SELECT 
+                t.*,
+                u.name as created_by_name,
+                u.email as created_by_email
+            FROM tasks t
+            LEFT JOIN users u ON t.created_by = u.id
+            WHERE t.id = $1
+        `;
+
+        const responseResult = await pool.query(responseQuery, [newTask.id]);
+        res.status(201).json(responseResult.rows[0]);
+
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error('Error:', error);
-        res.status(500).json({ error: 'Error al crear tarea' });
+        console.error('❌ Error al crear tarea:', error);
+        console.error('Stack trace:', error.stack);
+
+        // Manejo detallado de errores
+        if (error.code === '23502') {
+            return res.status(400).json({
+                error: 'Campo requerido faltante',
+                field: error.column,
+                detail: error.detail,
+                hint: 'Asegúrese de que todos los campos obligatorios estén completos'
+            });
+        }
+
+        if (error.code === '23503') {
+            return res.status(400).json({
+                error: 'Referencia inválida',
+                detail: 'El usuario especificado no existe',
+                hint: 'Contacte al administrador del sistema'
+            });
+        }
+
+        res.status(500).json({
+            error: 'Error al crear la tarea',
+            message: process.env.NODE_ENV === 'development' ? error.message : 'Error interno del servidor',
+            code: error.code
+        });
     } finally {
         client.release();
     }
 });
-
 // Actualizar tarea
 app.put('/api/tasks/:id', async (req, res) => {
     try {
