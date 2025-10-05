@@ -3,9 +3,11 @@
 
 import React, { useState } from 'react';
 import TaskManager from './TaskManager';
-import Rental from './Rental';
+//import Rental from './Rental';
+import RentalManagementSystem from './features/rentals/RentalManagementSystem.jsx';
+
 import './App.css';
-import './Rental.css';
+//import './Rental.css';
 
 function App() {
     const [activeTab, setActiveTab] = useState('tasks');
@@ -56,7 +58,7 @@ function App() {
                     <TaskManager updateTabData={updateTabData('tasks')} />
                 )}
                 {activeTab === 'rentals' && (
-                    <Rental updateTabData={updateTabData('rentals')} />
+                    <RentalManagementSystem />
                 )}
             </main>
         </div>

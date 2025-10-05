@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import TaskManager from './TaskManager';
 import Home from './Home';
-import Rental from './Rental';
+import RentalManagementSystem from './features/rentals/RentalManagementSystem.jsx';
+
 import {
     Home as HomeIcon,
     CheckSquare,
@@ -32,7 +33,7 @@ const TABS_CONFIG = [
         id: 'rental',
         label: 'Alquiler',
         icon: Key,
-        component: Rental,
+        component: RentalManagementSystem,
         color: '#f6ad55'
     }
     // Aquí puedes agregar más pestañas fácilmente
