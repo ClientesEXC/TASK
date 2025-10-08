@@ -1,27 +1,43 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ShoppingCart, Package, Users, DollarSign, Search, Edit2, Trash2, Save, X, Calendar, FileText } from 'lucide-react';
+import { Plus, ShoppingCart, Package, DollarSign, Search, Edit2, Trash2, X, FileText } from 'lucide-react';
+import {
+    listProducts,
+    createProduct,
+    updateProduct,
+    deleteProduct,
+} from '../../services/products';
 
 export default function RentalManagementSystem() {
+    // --- Productos (CRUD + UI) ---
     const [products, setProducts] = useState([]);
-    const [clients, setClients] = useState([]);
-    const [rentals, setRentals] = useState([]);
-    const [cart, setCart] = useState([]);
-    const [activeTab, setActiveTab] = useState('products');
-    const [showProductForm, setShowProductForm] = useState(false);
-    const [showClientForm, setShowClientForm] = useState(false);
-    const [editingProduct, setEditingProduct] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [currentClient, setCurrentClient] = useState(null);
-    const [showPaymentModal, setShowPaymentModal] = useState(false);
-    const [selectedRental, setSelectedRental] = useState(null);
+    const [showProductForm, setShowProductForm] = useState(false);
+    const [editingProduct, setEditingProduct] = useState(null);
+    const [isLoadingProducts, setIsLoadingProducts] = useState(false);
 
+    // Paginación
+    const [page, setPage] = useState(1);
+    const [perPage] = useState(12);
+    const [totalPages, setTotalPages] = useState(1);
+
+    // Form de producto
     const [productForm, setProductForm] = useState({
         name: '',
         description: '',
         price: '',
         stock: '',
-        image: null
+        image: null,
     });
+
+    // --- Clientes / Alquileres (de momento local hasta cablear API) ---
+    const [clients, setClients] = useState([]);
+    const [rentals, setRentals] = useState([]);
+    const [cart, setCart] = useState([]);
+    const [activeTab, setActiveTab] = useState('products');
+    const [showClientForm, setShowClientForm] = useState(false);
+    const [currentClient, setCurrentClient] = useState(null);
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [selectedRental, setSelectedRental] = useState(null);
 
     const [clientForm, setClientForm] = useState({
         name: '',
@@ -44,50 +60,82 @@ export default function RentalManagementSystem() {
         notes: ''
     });
 
+    // --------- Efecto: cargar productos (filtrado + paginado) ----------
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                setIsLoadingProducts(true);
+                const { items, meta } = await listProducts({
+                    q: searchTerm,
+                    page,
+                    per_page: perPage,
+                    sort: 'created_at',
+                    dir: 'desc',
+                    is_active: true,
+                });
+                if (!cancelled) {
+                    setProducts(items);
+                    setTotalPages(meta?.total_pages || 1);
+                }
+            } catch (e) {
+                console.error(e);
+                alert(e.userMessage || 'Error cargando productos');
+            } finally {
+                if (!cancelled) setIsLoadingProducts(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [searchTerm, page, perPage]);
+
+    // Reset de página al cambiar búsqueda
+    useEffect(() => { setPage(1); }, [searchTerm]);
+
+    // --------- Handlers de Productos (usando API) ----------
     const handleImageUpload = (e) => {
         const file = e.target.files[0];
         if (file) {
             const reader = new FileReader();
             reader.onloadend = () => {
-                setProductForm({ ...productForm, image: reader.result });
+                setProductForm((f) => ({ ...f, image: reader.result }));
             };
             reader.readAsDataURL(file);
         }
     };
 
-    const handleSaveProduct = () => {
-        if (!productForm.name || !productForm.price || !productForm.stock) {
+    const handleSaveProduct = async () => {
+        if (!productForm.name || productForm.price === '' || productForm.stock === '') {
             alert('Por favor completa todos los campos obligatorios');
             return;
         }
-
-        if (editingProduct) {
-            const updated = products.map(p =>
-                p.id === editingProduct.id ? { ...productForm, id: p.id } : p
-            );
-            setProducts(updated);
-        } else {
-            const newProduct = {
-                ...productForm,
-                id: Date.now(),
-                availableStock: parseInt(productForm.stock)
-            };
-            const updated = [...products, newProduct];
-            setProducts(updated);
+        try {
+            if (editingProduct) {
+                const { updated } = await updateProduct(editingProduct.id, productForm, editingProduct.version);
+                setProducts(prev => prev.map(p => p.id === updated.id ? updated : p));
+            } else {
+                const created = await createProduct(productForm);
+                setProducts(prev => [created, ...prev]);
+            }
+            setShowProductForm(false);
+            setEditingProduct(null);
+            setProductForm({ name: '', description: '', price: '', stock: '', image: null });
+        } catch (e) {
+            alert(e.userMessage || 'No se pudo guardar el producto');
         }
-
-        setShowProductForm(false);
-        setEditingProduct(null);
-        setProductForm({ name: '', description: '', price: '', stock: '', image: null });
     };
 
-    const handleDeleteProduct = (id) => {
+    const handleDeleteProduct = async (id) => {
         if (window.confirm('¿Estás seguro de eliminar este producto?')) {
-            const updated = products.filter(p => p.id !== id);
-            setProducts(updated);
+            try {
+                await deleteProduct(id);
+                setProducts(prev => prev.filter(p => p.id !== id));
+            } catch (e) {
+                alert(e.userMessage || 'No se pudo eliminar');
+            }
         }
     };
 
+    // --------- Carrito ----------
     const handleAddToCart = (product) => {
         const existing = cart.find(item => item.id === product.id);
         if (existing) {
@@ -106,27 +154,27 @@ export default function RentalManagementSystem() {
     };
 
     const handleUpdateCartQuantity = (id, quantity) => {
-        if (quantity < 1) {
+        const q = Number(quantity);
+        if (q < 1) {
             handleRemoveFromCart(id);
             return;
         }
         setCart(cart.map(item =>
-            item.id === id ? { ...item, quantity: parseInt(quantity) } : item
+            item.id === id ? { ...item, quantity: q } : item
         ));
     };
 
+    // --------- Clientes (local por ahora) ----------
     const handleSaveClient = () => {
         if (!clientForm.name || !clientForm.cedula || !clientForm.phone) {
             alert('Por favor completa los campos obligatorios');
             return;
         }
-
         const newClient = {
             ...clientForm,
             id: Date.now()
         };
-        const updated = [...clients, newClient];
-        setClients(updated);
+        setClients(prev => [newClient, ...prev]);
         setCurrentClient(newClient);
         setShowClientForm(false);
         setClientForm({
@@ -140,6 +188,7 @@ export default function RentalManagementSystem() {
         });
     };
 
+    // --------- Alquiler (local por ahora) ----------
     const handleCompleteRental = () => {
         if (cart.length === 0 || !currentClient || !rentalDates.deliveryDate || !rentalDates.returnDate) {
             alert('Por favor completa todos los datos necesarios');
@@ -178,8 +227,7 @@ export default function RentalManagementSystem() {
             return product;
         });
 
-        const updatedRentals = [...rentals, newRental];
-        setRentals(updatedRentals);
+        setRentals(prev => [...prev, newRental]);
         setProducts(updatedProducts);
 
         setCart([]);
@@ -250,10 +298,6 @@ export default function RentalManagementSystem() {
             setRentals(updatedRentals);
         }
     };
-
-    const filteredProducts = products.filter(p =>
-        p.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
 
     const totalCart = cart.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0);
 
@@ -395,50 +439,85 @@ export default function RentalManagementSystem() {
                             </div>
                         )}
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {filteredProducts.map(product => (
-                                <div key={product.id} className="bg-white rounded-lg shadow-md overflow-hidden">
-                                    {product.image && (
-                                        <img src={product.image} alt={product.name} className="w-full h-48 object-cover" />
-                                    )}
-                                    <div className="p-4">
-                                        <h3 className="font-bold text-lg mb-2">{product.name}</h3>
-                                        <p className="text-gray-600 text-sm mb-3">{product.description}</p>
-                                        <div className="flex justify-between items-center mb-3">
-                                            <span className="text-2xl font-bold text-blue-600">${product.price}</span>
-                                            <span className="text-sm text-gray-600">
-                        Disponible: {product.availableStock}/{product.stock}
-                      </span>
+                        {/* Loader */}
+                        {isLoadingProducts && (
+                            <div className="text-center text-gray-500 py-8">Cargando productos...</div>
+                        )}
+
+                        {/* Grid de productos */}
+                        {!isLoadingProducts && (
+                            <>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {products.map(product => (
+                                        <div key={product.id} className="bg-white rounded-lg shadow-md overflow-hidden">
+                                            {product.image && (
+                                                <img src={product.image} alt={product.name} className="w-full h-48 object-cover" />
+                                            )}
+                                            <div className="p-4">
+                                                <h3 className="font-bold text-lg mb-2">{product.name}</h3>
+                                                <p className="text-gray-600 text-sm mb-3">{product.description}</p>
+                                                <div className="flex justify-between items-center mb-3">
+                                                    <span className="text-2xl font-bold text-blue-600">${product.price}</span>
+                                                    <span className="text-sm text-gray-600">
+                            Disponible: {product.availableStock}/{product.stock}
+                          </span>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        onClick={() => handleAddToCart(product)}
+                                                        disabled={product.availableStock === 0}
+                                                        className="flex-1 bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                                    >
+                                                        Agregar
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            setEditingProduct(product); // mantiene version para optimistic locking
+                                                            setProductForm({
+                                                                name: product.name,
+                                                                description: product.description || '',
+                                                                price: product.price,
+                                                                stock: product.stock,
+                                                                image: product.image || null
+                                                            });
+                                                            setShowProductForm(true);
+                                                        }}
+                                                        className="bg-gray-200 p-2 rounded hover:bg-gray-300"
+                                                    >
+                                                        <Edit2 size={18} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteProduct(product.id)}
+                                                        className="bg-red-100 text-red-600 p-2 rounded hover:bg-red-200"
+                                                    >
+                                                        <Trash2 size={18} />
+                                                    </button>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="flex gap-2">
-                                            <button
-                                                onClick={() => handleAddToCart(product)}
-                                                disabled={product.availableStock === 0}
-                                                className="flex-1 bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                                            >
-                                                Agregar
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    setEditingProduct(product);
-                                                    setProductForm(product);
-                                                    setShowProductForm(true);
-                                                }}
-                                                className="bg-gray-200 p-2 rounded hover:bg-gray-300"
-                                            >
-                                                <Edit2 size={18} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteProduct(product.id)}
-                                                className="bg-red-100 text-red-600 p-2 rounded hover:bg-red-200"
-                                            >
-                                                <Trash2 size={18} />
-                                            </button>
-                                        </div>
-                                    </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
+
+                                {/* Paginación */}
+                                <div className="flex items-center justify-center gap-2 mt-6">
+                                    <button
+                                        className="px-3 py-2 border rounded disabled:opacity-50"
+                                        disabled={page <= 1}
+                                        onClick={() => setPage(p => Math.max(1, p - 1))}
+                                    >
+                                        Anterior
+                                    </button>
+                                    <span className="text-sm">Página {page} de {totalPages}</span>
+                                    <button
+                                        className="px-3 py-2 border rounded disabled:opacity-50"
+                                        disabled={page >= totalPages}
+                                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                    >
+                                        Siguiente
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
 
