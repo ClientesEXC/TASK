@@ -7,11 +7,13 @@ import {
     Home as HomeIcon,
     CheckSquare,
     Key,
+    Calculator,
     Plus,
     Menu,
     X
 } from 'lucide-react';
 import './MainApp.css';
+import CotizadorMateriales from './features/quotes/CotizadorMateriales';
 
 // Configuración de pestañas - Fácilmente extensible
 const TABS_CONFIG = [
@@ -35,7 +37,14 @@ const TABS_CONFIG = [
         icon: Key,
         component: RentalManagementSystem,
         color: '#f6ad55'
-    }
+    },
+    {
+        id: 'quotes',
+        label: 'Cotizador',
+        icon: Calculator,
+        component: CotizadorMateriales,
+        color: '#3b82f6' // azul (optativo)
+  }
     // Aquí puedes agregar más pestañas fácilmente
 ];
 

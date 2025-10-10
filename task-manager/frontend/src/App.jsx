@@ -1,6 +1,6 @@
 // task-manager/frontend/src/App.jsx
 // Actualización para integrar el sistema de alquileres mejorado
-
+import CotizadorMateriales from './features/quotes/CotizadorMateriales';
 import React, { useState } from 'react';
 import TaskManager from './TaskManager';
 //import Rental from './Rental';
@@ -50,6 +50,12 @@ function App() {
                             </span>
                         )}
                     </button>
+                    <button
+                        className={`tab-button ${activeTab === 'quotes' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('quotes')}
+                    >
+                        <span>Cotizador</span>
+                    </button>
                 </nav>
             </header>
 
@@ -59,6 +65,9 @@ function App() {
                 )}
                 {activeTab === 'rentals' && (
                     <RentalManagementSystem />
+                )}
+                {activeTab === 'quotes' && (
+                    <CotizadorMateriales />
                 )}
             </main>
         </div>

@@ -13,6 +13,9 @@ const { notFound, errorHandler } = require('./middleware/error-handler');
 
 // ✅ Usa SIEMPRE el módulo de DB compartido
 const { pool } = require('./db');
+// task-manager/backend/server.js
+const quotesRouter = require('./routes/quotes.routes');
+
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -20,23 +23,19 @@ const HOST = '0.0.0.0';
 const LOCAL_IP = process.env.LOCAL_IP || '19.18.1.101';
 
 // -------------------- CORS --------------------
+// Configuración de CORS mejorada (una sola subred 192.168.100.0/24)
 const corsOptions = {
     origin: function (origin, callback) {
-        const allowedOrigins = [
-            'http://localhost:3000',
-            'http://127.0.0.1:3000',
-            `http://${LOCAL_IP}:3000`,
-            `http://${LOCAL_IP}:3001`,
+        const allowRegexes = [
+            /^http:\/\/192\.168\.100\.\d{1,3}:\d+$/, // cualquier host:puerto en 192.168.100.x
+            /^http:\/\/localhost:\d+$/,              // localhost para pruebas
+
+            /^http:\/\/127\.0\.0\.1:\d+$/,
+            /^http:\/\/19\.18\.1\.101:\d+$/// loopback
         ];
-
-        if (!origin) return callback(null, true); // Postman, apps móviles
-
-        if (origin.match(/^http:\/\/19\.18\.\d{1,3}\.\d{1,3}:\d+$/)) {
-            return callback(null, true); // cualquier IP de la red 19.18.x.x
-        }
-
-        if (allowedOrigins.includes(origin)) return callback(null, true);
-
+        // Permitir peticiones sin origin (Postman, apps, etc.)
+        if (!origin) return callback(null, true);
+        if (allowRegexes.some((rx) => rx.test(origin))) return callback(null, true);
         console.log('❌ Origen bloqueado por CORS:', origin);
         callback(new Error('No permitido por CORS'));
     },
@@ -44,9 +43,11 @@ const corsOptions = {
     optionsSuccessStatus: 200,
 };
 
-// ---------------- Middlewares base -------------
-app.use(helmet());
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// ---------------- Middlewares base -------------
+app.use(helmet({ crossOriginResourcePolicy: false }))
 app.use(express.json({ limit: '5mb' }));
 app.use(morgan('dev'));
 
@@ -566,6 +567,7 @@ app.all(
 );
 
 // ---------------- 404 y errores (AL FINAL) ----------------
+app.use('/api', quotesRouter);
 app.use(notFound);
 app.use(errorHandler);
 
@@ -577,5 +579,6 @@ app.listen(PORT, HOST, () => {
     console.log(`📍 Local:      http://localhost:${PORT}`);
     console.log(`🌐 Red Local:  http://${LOCAL_IP}:${PORT}`);
     console.log(`📊 Base Datos: PostgreSQL puerto ${process.env.DB_PORT || 5433}`);
+    console.log(`🌐 Backend escuchando en http://0.0.0.0:${PORT}`);
     console.log('========================================\n');
 });
