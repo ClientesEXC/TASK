@@ -42,14 +42,37 @@ const corsOptions = {
     optionsSuccessStatus: 200,
 };
 
-app.use(cors(corsOptions));
+app.use(cors({
+    origin: 'http://192.168.1.100/:3000',
+    credentials: true
+}));
 app.options('*', cors(corsOptions));
 
 // ---------------- Middlewares base -------------
-app.use(helmet({ crossOriginResourcePolicy: false }))
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
+
+// 2) Seguridad sin romper estáticos/CORS
+app.use(helmet({
+    crossOriginResourcePolicy: false,
+    contentSecurityPolicy: false
+}));
+
+// 3) Sanitizador: "" -> null (evita errores de tipos en DB)
+app.use((req, _res, next) => {
+    const scrub = (o) => {
+        if (o && typeof o === 'object') {
+            for (const k of Object.keys(o)) {
+                if (o[k] === '') o[k] = null;
+                else if (typeof o[k] === 'object') scrub(o[k]);
+            }
+        }
+    };
+    scrub(req.body);
+    next();
+});
 // --------- Auth opcional + usuario por defecto ----------
 app.use(optionalAuth);
 const assignDefaultUser = (req, res, next) => {

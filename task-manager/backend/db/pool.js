@@ -10,12 +10,13 @@ const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
     database: process.env.DB_NAME || 'taskmanager',
     password: process.env.DB_PASSWORD || 'taskpass',
-    port: Number(process.env.DB_PORT || 5433),
+    port: +process.env.DB_PORT,
 
     // Pool tuning
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
+    keepAlive: true
 });
 
 pool.on('connect', () => {
