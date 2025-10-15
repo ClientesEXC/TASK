@@ -25,22 +25,29 @@ const LOCAL_IP = process.env.LOCAL_IP || '19.18.1.101';
 // -------------------- CORS --------------------
 // Configuración de CORS mejorada (una sola subred 192.168.100.0/24)
 const corsOptions = {
-    origin: function (origin, callback) {
-        const allowRegexes = [
-            /^http:\/\/192\.168\.100\.\d{1,3}(:\d+)?$/, // cualquier host:puerto en 192.168.100.x
-            /^http:\/\/localhost(:\d+)?$/,
-            /^http:\/\/127\.0\.0\.1(:\d+)?$/,
-            /^http:\/\/19\.18\.1\.101:\d+$/// loopback
-        ];
-        // Permitir peticiones sin origin (Postman, apps, etc.)
-        if (!origin) return callback(null, true);
-        if (allowRegexes.some((rx) => rx.test(origin))) return callback(null, true);
-        console.log('❌ Origen bloqueado por CORS:', origin);
-        callback(new Error('No permitido por CORS'));
-    },
-    credentials: true,
-    optionsSuccessStatus: 200,
-};
+         origin: function (origin, callback) {
+             // Lista de expresiones regulares aceptadas
+                 const allowRegexes = [
+                     // Permite cualquier IP dentro del rango 192.168.*.*
+                         /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,
+                     // Aún permite localhost y loopback
+                         /^http:\/\/localhost(:\d+)?$/,
+                     /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+                     // IP estática adicional (si se requiere)
+                         /^http:\/\/19\.18\.1\.101(:\d+)?$/
+                 ];
+             // Permitir peticiones sin origen (p.ej. Postman)
+                 if (!origin) return callback(null, true);
+             // Comprobar si el origen cumple alguna regla
+                 if (allowRegexes.some((rx) => rx.test(origin))) {
+                     return callback(null, true);
+                 }
+             console.log('❌ Origen bloqueado por CORS:', origin);
+             callback(new Error('No permitido por CORS'));
+         },
+     credentials: true,
+         optionsSuccessStatus: 200,
+     };
 
 app.use(cors({
     origin: 'http://192.168.1.100/:3000',
