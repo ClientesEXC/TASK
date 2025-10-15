@@ -19,7 +19,7 @@ const quotesRouter = require('./routes/quotes.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const HOST = '0.0.0.0';
+const HOST = process.env.HOST || '0.0.0.0';
 const LOCAL_IP = process.env.LOCAL_IP || '19.18.1.101';
 
 // -------------------- CORS --------------------
@@ -27,10 +27,9 @@ const LOCAL_IP = process.env.LOCAL_IP || '19.18.1.101';
 const corsOptions = {
     origin: function (origin, callback) {
         const allowRegexes = [
-            /^http:\/\/192\.168\.100\.\d{1,3}:\d+$/, // cualquier host:puerto en 192.168.100.x
-            /^http:\/\/localhost:\d+$/,              // localhost para pruebas
-
-            /^http:\/\/127\.0\.0\.1:\d+$/,
+            /^http:\/\/192\.168\.100\.\d{1,3}(:\d+)?$/, // cualquier host:puerto en 192.168.100.x
+            /^http:\/\/localhost(:\d+)?$/,
+            /^http:\/\/127\.0\.0\.1(:\d+)?$/,
             /^http:\/\/19\.18\.1\.101:\d+$/// loopback
         ];
         // Permitir peticiones sin origin (Postman, apps, etc.)
