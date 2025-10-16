@@ -25,31 +25,34 @@ const LOCAL_IP = process.env.LOCAL_IP || '19.18.1.101';
 // -------------------- CORS --------------------
 // Configuración de CORS mejorada (una sola subred 192.168.100.0/24)
 const corsOptions = {
-         origin: function (origin, callback) {
-             // Lista de expresiones regulares aceptadas
-                 const allowRegexes = [
-                     // Permite cualquier IP dentro del rango 192.168.*.*
-                         /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/,
-                     // Aún permite localhost y loopback
-                         /^http:\/\/localhost(:\d+)?$/,
-                     /^http:\/\/127\.0\.0\.1(:\d+)?$/,
-                     // IP estática adicional (si se requiere)
-                         /^http:\/\/19\.18\.1\.101(:\d+)?$/
-                 ];
-             // Permitir peticiones sin origen (p.ej. Postman)
-                 if (!origin) return callback(null, true);
-             // Comprobar si el origen cumple alguna regla
-                 if (allowRegexes.some((rx) => rx.test(origin))) {
-                     return callback(null, true);
-                 }
-             console.log('❌ Origen bloqueado por CORS:', origin);
-             callback(new Error('No permitido por CORS'));
-         },
-     credentials: true,
-         optionsSuccessStatus: 200,
-     };
+    origin: function (origin, callback) {
+        // Expresiones regulares para aceptar la subred completa
+        const allowRegexes = [
+            // Cualquier IP en 192.168.100.x
+            /^http:\/\/192\.168\.100\.\d{1,3}(:\d+)?$/,
+            // Localhost
+            /^http:\/\/localhost(:\d+)?$/,
+            /^http:\/\/127\.0\.0\.1(:\d+)?$/,
+        ];
 
-app.use(cors({ origin: 'http://192.168.100.64:3000', credentials: true }));
+        // Sin origen (Postman, etc)
+        if (!origin) return callback(null, true);
+
+        // Verificar si cumple alguna regla
+        if (allowRegexes.some((rx) => rx.test(origin))) {
+            return callback(null, true);
+        }
+
+        console.log('❌ CORS bloqueado:', origin);
+        callback(new Error('CORS no permitido'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
 
 app.options('*', cors(corsOptions));
 
@@ -286,112 +289,46 @@ app.get('/api/tasks/:id', async (req, res) => {
 });
 
 // Crear tarea
+// POST /api/tasks - Crear nueva tarea
 app.post('/api/tasks', async (req, res) => {
-    const client = await pool.connect();
-
     try {
-        await client.query('BEGIN');
+        const { title, client_name, price, status, description, due_date, initial_payment } = req.body;
 
-        const {
-            title,
-            client_name,
-            price = 0,
-            status = 'cotizacion',
-            description = '',
-            due_date,
-            initial_payment,
-        } = req.body;
+        const result = await pool.query(
+            `INSERT INTO tasks (title, client_name, price, status, description, due_date) 
+             VALUES ($1, $2, $3, $4, $5, $6) 
+             RETURNING *`,
+            [title, client_name, price || 0, status, description, due_date]
+        );
 
-        const errors = [];
-        if (!title || title.trim() === '') errors.push('El título es requerido');
-        if (!client_name || client_name.trim() === '') errors.push('El nombre del cliente es requerido');
-        if (price < 0) errors.push('El precio no puede ser negativo');
+        const taskId = result.rows[0].id;
 
-        const validStatuses = ['cotizacion', 'en_proceso', 'terminado', 'entregado'];
-        if (!validStatuses.includes(status)) {
-            errors.push(`Estado inválido. Debe ser uno de: ${validStatuses.join(', ')}`);
-        }
-
-        if (errors.length > 0) {
-            return res.status(400).json({ error: 'Validación fallida', errors });
-        }
-
-        const userId = req.user?.id || DEFAULT_USER_ID;
-
-        const taskQuery = `
-      INSERT INTO tasks (
-        title, client_name, price, status, description, due_date,
-        created_by, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      RETURNING *
-    `;
-
-        const taskValues = [
-            title.trim(),
-            client_name.trim(),
-            price,
-            status,
-            description.trim(),
-            due_date,
-            userId,
-        ];
-
-        const taskResult = await client.query(taskQuery, taskValues);
-        const newTask = taskResult.rows[0];
-
+        // Si hay abono inicial
         if (initial_payment && initial_payment.amount > 0) {
-            const paymentQuery = `
-        INSERT INTO payments (task_id, amount, payment_date, notes, created_by)
-        VALUES ($1,$2,$3,$4,$5)
-        RETURNING *
-      `;
-            const paymentValues = [
-                newTask.id,
-                initial_payment.amount,
-                initial_payment.payment_date || new Date(),
-                initial_payment.notes || 'Abono inicial',
-                userId,
-            ];
-            const paymentResult = await client.query(paymentQuery, paymentValues);
-            newTask.initial_payment = paymentResult.rows[0];
+            await pool.query(
+                `INSERT INTO payments (task_id, amount, payment_date, notes) 
+                 VALUES ($1, $2, $3, $4)`,
+                [taskId, initial_payment.amount, initial_payment.payment_date, initial_payment.notes]
+            );
         }
 
-        await client.query('COMMIT');
+        const taskWithPayments = await pool.query(`
+            SELECT 
+                t.*,
+                COALESCE(SUM(p.amount), 0) as total_advance_payment,
+                COUNT(p.id) as payment_count
+            FROM tasks t
+            LEFT JOIN payments p ON t.id = p.task_id
+            WHERE t.id = $1
+            GROUP BY t.id
+        `, [taskId]);
 
-        const responseQuery = `
-      SELECT 
-        t.*, u.name as created_by_name, u.email as created_by_email
-      FROM tasks t
-      LEFT JOIN users u ON t.created_by = u.id
-      WHERE t.id = $1
-    `;
-        const responseResult = await pool.query(responseQuery, [newTask.id]);
-        res.status(201).json(responseResult.rows[0]);
-
+        res.json(taskWithPayments.rows[0]);
     } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('❌ Error al crear tarea:', error);
-
-        if (error.code === '23502') {
-            return res.status(400).json({
-                error: 'Campo requerido faltante',
-                field: error.column,
-                detail: error.detail,
-            });
-        }
-        if (error.code === '23503') {
-            return res.status(400).json({
-                error: 'Referencia inválida',
-                detail: 'El usuario especificado no existe',
-            });
-        }
-
-        res.status(500).json({ error: 'Error al crear la tarea' });
-    } finally {
-        client.release();
+        console.error('❌ Error creating task:', error);
+        res.status(500).json({ error: error.message });
     }
 });
-
 // Actualizar tarea
 app.put('/api/tasks/:id', async (req, res) => {
     try {
@@ -514,28 +451,24 @@ app.get('/api/tasks/:id/payments', async (req, res) => {
     }
 });
 
+// POST /api/tasks/:id/payments - Agregar abono
 app.post('/api/tasks/:id/payments', async (req, res) => {
     try {
         const { id } = req.params;
         const { amount, payment_date, notes } = req.body;
 
-        const taskCheck = await pool.query('SELECT id FROM tasks WHERE id=$1', [id]);
-        if (taskCheck.rows.length === 0) return res.status(404).json({ error: 'Tarea no encontrada' });
-
-        const result = await pool.query(
-            `INSERT INTO payments (task_id, amount, payment_date, notes)
-       VALUES ($1,$2,$3,$4)
-       RETURNING *`,
-            [id, amount, payment_date || new Date(), notes || '']
+        await pool.query(
+            `INSERT INTO payments (task_id, amount, payment_date, notes) 
+             VALUES ($1, $2, $3, $4)`,
+            [id, amount, payment_date, notes]
         );
 
-        res.status(201).json(result.rows[0]);
+        res.json({ success: true });
     } catch (error) {
-        console.error('Error:', error);
-        res.status(500).json({ error: 'Error al agregar abono' });
+        console.error('❌ Error adding payment:', error);
+        res.status(500).json({ error: error.message });
     }
 });
-
 app.put('/api/payments/:id', async (req, res) => {
     try {
         const { id } = req.params;
