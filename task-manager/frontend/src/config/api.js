@@ -11,7 +11,7 @@ const getApiUrl = () => {
     // 2) Si estamos en localhost
     const hostname = window.location.hostname;
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-        return 'http://192.168.100.64:3001/api';
+        return 'http://192.168.100.37:3001/api';
     }
 
     // 3) Acceso por IP o dominio: usar esa IP con puerto 3001
